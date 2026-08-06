@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Pro Flowchart Maker</title>
+    <link rel="stylesheet" href="./styles/app.css">
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
+</head>
+<body>
+
+<div id="app">
+    <div id="canvas-viewport">
+        <div id="bg-grid"></div>
+        <div id="canvas-content">
+            <svg id="svg-layer">
+                <defs>
+                    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#64748b" /></marker>
+                    <marker id="arrowhead-danger" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#f43f5e" /></marker>
+                </defs>
+            </svg>
+            <input id="connectionLabelEditor" class="connection-label-editor" type="text" placeholder="Arrow label" maxlength="80" aria-label="Arrow label">
+        </div>
+        <div id="selection-box"></div>
+    </div>
+
+    <div id="toolbarStack">
+        <div id="connectionTools" class="floating-bar secondary-toolbar" aria-label="Connection controls">
+            <div class="toolbar-section toolbar-section-compact">
+                <span class="tool-label">Arrow</span>
+                <div class="tool-group connection-type-group">
+                    <button class="mini-btn connection-type-btn" data-action="set-connection-type" data-connection-type="sequence" type="button">Next</button>
+                    <button class="mini-btn connection-type-btn" data-action="set-connection-type" data-connection-type="dependency" type="button">Part of</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="colorTools" class="floating-bar secondary-toolbar" aria-label="Node appearance controls">
+            <div class="toolbar-section toolbar-section-compact">
+                <span class="tool-label">Fill</span>
+                <div class="palette-container" id="fillPalette">
+                    <div class="swatch" style="background:#ffffff" data-action="apply-color" data-color-target="bgColor" data-color-value="#ffffff" data-color="#ffffff"></div>
+                    <div class="swatch" style="background:#f1f5f9" data-action="apply-color" data-color-target="bgColor" data-color-value="#f1f5f9" data-color="#f1f5f9"></div>
+                    <div class="swatch" style="background:#e0f2fe" data-action="apply-color" data-color-target="bgColor" data-color-value="#e0f2fe" data-color="#e0f2fe"></div>
+                    <div class="swatch" style="background:#dcfce7" data-action="apply-color" data-color-target="bgColor" data-color-value="#dcfce7" data-color="#dcfce7"></div>
+                    <div class="swatch" style="background:#fef3c7" data-action="apply-color" data-color-target="bgColor" data-color-value="#fef3c7" data-color="#fef3c7"></div>
+                    <div class="swatch" style="background:#f3e8ff" data-action="apply-color" data-color-target="bgColor" data-color-value="#f3e8ff" data-color="#f3e8ff"></div>
+                    <div class="swatch" style="background:#ffe4e6" data-action="apply-color" data-color-target="bgColor" data-color-value="#ffe4e6" data-color="#ffe4e6"></div>
+                    <label class="swatch swatch-custom" title="Custom fill color" aria-label="Custom fill color">
+                        <input type="color" id="customFillColorInput" value="#ffffff">
+                    </label>
+                </div>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="toolbar-section toolbar-section-compact">
+                <span class="tool-label">Text</span>
+                <div class="palette-container" id="textPalette">
+                    <div class="swatch" style="background:#0f172a" data-action="apply-color" data-color-target="textColor" data-color-value="#0f172a" data-color="#0f172a"></div>
+                    <div class="swatch" style="background:#475569" data-action="apply-color" data-color-target="textColor" data-color-value="#475569" data-color="#475569"></div>
+                    <div class="swatch" style="background:#ffffff" data-action="apply-color" data-color-target="textColor" data-color-value="#ffffff" data-color="#ffffff"></div>
+                    <label class="swatch swatch-custom" title="Custom text color" aria-label="Custom text color">
+                        <input type="color" id="customTextColorInput" value="#0f172a">
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <div id="formatTools" class="floating-bar secondary-toolbar" aria-label="Rich text formatting">
+            <div class="toolbar-section toolbar-section-compact">
+                <span class="tool-label">Format</span>
+                <div class="tool-group">
+                    <button class="mini-btn rich-format-btn" data-action="apply-rich-format" data-rich-command="formatBlock" data-rich-value="H1" type="button">H1</button>
+                    <button class="mini-btn rich-format-btn" data-action="apply-rich-format" data-rich-command="formatBlock" data-rich-value="H2" type="button">H2</button>
+                    <button class="mini-btn rich-format-btn" data-action="apply-rich-format" data-rich-command="formatBlock" data-rich-value="H3" type="button">H3</button>
+                    <button class="mini-btn rich-format-btn" data-action="insert-rich-checkbox" type="button">Todo</button>
+                    <button class="mini-btn rich-format-btn" data-action="insert-rich-link" type="button">Link</button>
+                    <button class="mini-btn rich-format-btn" data-action="insert-rich-image" type="button">Image</button>
+                </div>
+            </div>
+            <input type="file" id="richImageInput" class="hidden-input" accept="image/*">
+        </div>
+
+        <div id="tableTools" class="floating-bar secondary-toolbar" aria-label="Table controls">
+            <div class="toolbar-section toolbar-section-compact">
+                <span class="tool-label">Table</span>
+                <div class="tool-group">
+                    <button class="mini-btn table-tool-btn" data-action="apply-table-action" data-table-action="add-row" type="button">+ Row</button>
+                    <button class="mini-btn table-tool-btn" data-action="apply-table-action" data-table-action="add-column" type="button">+ Col</button>
+                    <button class="mini-btn table-tool-btn" data-action="apply-table-action" data-table-action="add-summary-row" type="button">Summary</button>
+                    <button class="mini-btn table-tool-btn" data-action="apply-table-action" data-table-action="paste-markdown-table" type="button">Paste MD</button>
+                    <button class="mini-btn table-tool-btn" data-action="apply-table-action" data-table-action="duplicate-row" type="button">Dup Row</button>
+                    <button class="mini-btn table-tool-btn" data-action="apply-table-action" data-table-action="duplicate-column" type="button">Dup Col</button>
+                    <button class="mini-btn table-tool-btn" data-action="apply-table-action" data-table-action="insert-link" type="button">Link</button>
+                    <button class="mini-btn table-tool-btn" data-action="apply-table-action" data-table-action="toggle-filters" type="button">Filters</button>
+                    <button class="mini-btn table-tool-btn" data-action="apply-table-action" data-table-action="clear-filters" type="button">Clear</button>
+                    <button class="mini-btn table-tool-btn" data-action="apply-table-action" data-table-action="clear-cell-styles" type="button">Clr Style</button>
+                    <button class="mini-btn table-tool-btn" data-action="apply-table-action" data-table-action="delete-row" type="button">Del Row</button>
+                    <button class="mini-btn table-tool-btn" data-action="apply-table-action" data-table-action="delete-column" type="button">Del Col</button>
+                </div>
+            </div>
+        </div>
+
+            <div id="toolbar" class="floating-bar" aria-label="Canvas controls">
+            <span id="selectionStatus" class="selection-status" hidden></span>
+            <div class="toolbar-section">
+                <button class="icon-btn toolbar-create-btn" data-action="create-node" data-node-type="start" data-toolbar-draggable="true" title="Add Start / End" aria-label="Add Start / End" type="button">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <circle cx="8" cy="12" r="4.5"></circle>
+                        <path d="M12.5 12h7"></path>
+                        <path d="M16.5 8.5 20 12l-3.5 3.5"></path>
+                    </svg>
+                </button>
+                <button class="icon-btn toolbar-create-btn" data-action="create-node" data-node-type="process" data-toolbar-draggable="true" title="Add Process" aria-label="Add Process" type="button">
+                    <i data-lucide="square"></i>
+                </button>
+                <button class="icon-btn toolbar-create-btn" data-action="create-node" data-node-type="decision" data-toolbar-draggable="true" title="Add Decision" aria-label="Add Decision" type="button">
+                    <i data-lucide="diamond"></i>
+                </button>
+                <button class="icon-btn toolbar-create-btn" data-action="create-node" data-node-type="group" data-toolbar-draggable="true" title="Add Group" aria-label="Add Group" type="button">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <rect x="3.5" y="4.5" width="17" height="15" rx="2.5"></rect>
+                        <path d="M8 9.5h8"></path>
+                        <path d="M8 13.5h5"></path>
+                    </svg>
+                </button>
+                <button class="icon-btn toolbar-create-btn" data-action="create-node" data-node-type="floatingText" data-toolbar-draggable="true" title="Add Floating Text" aria-label="Add Floating Text" type="button">
+                    <i data-lucide="type"></i>
+                </button>
+                <button class="icon-btn toolbar-create-btn" data-action="create-table" data-toolbar-draggable="true" title="Add Table" aria-label="Add Table" type="button">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <rect x="3.5" y="5" width="17" height="14" rx="2.5"></rect>
+                        <path d="M3.5 9.5h17"></path>
+                        <path d="M9.25 9.5V19"></path>
+                        <path d="M14.75 9.5V19"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="toolbar-section">
+                <button class="icon-btn" id="undoBtn" data-action="undo" title="Undo (Ctrl+Z)" aria-label="Undo" disabled>
+                    <i data-lucide="undo-2"></i>
+                </button>
+                <button class="icon-btn" id="redoBtn" data-action="redo" title="Redo (Ctrl+Y)" aria-label="Redo" disabled>
+                    <i data-lucide="redo-2"></i>
+                </button>
+            </div>
+
+            <div class="toolbar-section">
+                <button class="icon-btn" data-action="zoom-out" title="Zoom Out" aria-label="Zoom Out">-</button>
+                <button id="zoomLevelBtn" class="icon-btn zoom-level-btn" data-action="reset-zoom" title="Reset Zoom to 100%" aria-label="Reset Zoom to 100%">100%</button>
+                <button class="icon-btn" data-action="zoom-in" title="Zoom In" aria-label="Zoom In">+</button>
+                <button class="icon-btn" data-action="center-origin" title="Center View on All Content" aria-label="Center View on All Content">
+                    <i data-lucide="crosshair"></i>
+                </button>
+                <button class="icon-btn" data-action="zoom-to-fit" title="Zoom to Fit All Content" aria-label="Zoom to Fit All Content">
+                    <i data-lucide="scan"></i>
+                </button>
+            </div>
+
+            <div class="toolbar-section">
+                <button id="connectBtn" class="icon-btn" data-action="toggle-connect" title="Connect Mode Off (hold Alt to connect once)" aria-label="Connect Mode" aria-pressed="false">
+                    <i data-lucide="waypoints"></i>
+                </button>
+            </div>
+
+            <div class="toolbar-section">
+                <button id="fullscreenBtn" class="icon-btn" data-action="toggle-fullscreen" title="Fullscreen" aria-label="Fullscreen" aria-pressed="false">
+                    <i data-lucide="maximize"></i>
+                </button>
+                <button id="printBtn" class="icon-btn" data-action="print-chart" title="Print Chart" aria-label="Print Chart">
+                    <i data-lucide="printer"></i>
+                </button>
+            </div>
+
+            <div class="toolbar-section toolbar-section-wide" title="Align, distribute, and compress selected nodes">
+                <button id="alignMenuBtn" class="layout-btn" data-action="toggle-align-menu" title="Alignment Menu" aria-label="Alignment Menu" aria-expanded="false" type="button">
+                    <i data-lucide="align-center-horizontal"></i>
+                    <span>Align</span>
+                    <span class="toolbar-caret" aria-hidden="true">v</span>
+                </button>
+            </div>
+
+            <div class="toolbar-section">
+                <button class="layout-btn" data-action="run-topological-layout" title="Topological Layout" aria-label="Topological Layout">
+                    <span>Topo</span>
+                </button>
+                <button class="layout-btn" data-action="run-visual-tidy-layout" title="Tidy Layout" aria-label="Tidy Layout">
+                    <span>Tidy</span>
+                </button>
+                <button class="layout-btn layout-btn-icon" data-action="rotate-layout-clockwise" title="Rotate Layout 90 Degrees Clockwise" aria-label="Rotate Layout 90 Degrees Clockwise">
+                    <i data-lucide="rotate-cw"></i>
+                </button>
+                <button class="layout-btn" id="snapGridBtn" data-action="toggle-snap-grid" title="Snap to Grid (toggle)" aria-label="Snap to Grid" aria-pressed="false">
+                    <span>Snap</span>
+                </button>
+            </div>
+
+            <div class="toolbar-section toolbar-section-save">
+                <span id="autosaveStatus" class="autosave-status" title="Autosave status">Saved</span>
+                <input type="file" id="fileInput" class="hidden-input" accept=".json">
+                <button id="saveMenuBtn" class="save-menu-btn" data-action="toggle-save-menu" title="Data Menu" aria-label="Data Menu" aria-expanded="false">
+                    <i data-lucide="save"></i>
+                    <span>Save</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="saveMenuPanel" class="menu-panel">
+        <div class="menu-item" data-action="copy-json">Copy JSON <span class="menu-shortcut">Clipboard</span></div>
+        <div class="menu-item" data-action="paste-json">Paste JSON <span class="menu-shortcut">Clipboard</span></div>
+        <div class="menu-item" data-action="open-json-file-picker">Load JSON <span class="menu-shortcut">File</span></div>
+        <div class="menu-separator"></div>
+        <div class="menu-item" data-action="export-json">Save JSON <span class="menu-shortcut">File</span></div>
+        <div class="menu-item" data-action="export-svg">Export SVG <span class="menu-shortcut">File</span></div>
+        <div class="menu-item" data-action="export-png">Export PNG <span class="menu-shortcut">File</span></div>
+        <div class="menu-separator"></div>
+        <div class="menu-item" data-action="toggle-help">Shortcuts <span class="menu-shortcut">?</span></div>
+    </div>
+    <div id="alignMenuPanel" class="menu-panel">
+        <div class="align-menu-grid">
+            <button class="align-menu-btn" data-action="align-selected" data-align-mode="left" title="Align Left" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="10" x2="14" y2="10"/><line x1="4" y1="14" x2="18" y2="14"/><line x1="4" y1="18" x2="12" y2="18"/><line x1="3" y1="4" x2="3" y2="20"/></svg>
+                <span>Left</span>
+            </button>
+            <button class="align-menu-btn" data-action="align-selected" data-align-mode="center" title="Center Horizontally" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><line x1="4" y1="6" x2="20" y2="6"/><line x1="7" y1="10" x2="17" y2="10"/><line x1="5" y1="14" x2="19" y2="14"/><line x1="8" y1="18" x2="16" y2="18"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+                <span>H Center</span>
+            </button>
+            <button class="align-menu-btn" data-action="align-selected" data-align-mode="right" title="Align Right" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><line x1="4" y1="6" x2="20" y2="6"/><line x1="10" y1="10" x2="20" y2="10"/><line x1="6" y1="14" x2="20" y2="14"/><line x1="12" y1="18" x2="20" y2="18"/><line x1="21" y1="4" x2="21" y2="20"/></svg>
+                <span>Right</span>
+            </button>
+            <button class="align-menu-btn" data-action="align-selected" data-align-mode="top" title="Align Top" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><line x1="6" y1="4" x2="6" y2="20"/><line x1="10" y1="4" x2="10" y2="14"/><line x1="14" y1="4" x2="14" y2="16"/><line x1="18" y1="4" x2="18" y2="12"/><line x1="4" y1="3" x2="20" y2="3"/></svg>
+                <span>Top</span>
+            </button>
+            <button class="align-menu-btn" data-action="align-selected" data-align-mode="middle" title="Center Vertically" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><line x1="6" y1="4" x2="6" y2="20"/><line x1="10" y1="7" x2="10" y2="17"/><line x1="14" y1="5" x2="14" y2="19"/><line x1="18" y1="8" x2="18" y2="16"/><line x1="4" y1="12" x2="20" y2="12"/></svg>
+                <span>V Center</span>
+            </button>
+            <button class="align-menu-btn" data-action="align-selected" data-align-mode="bottom" title="Align Bottom" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><line x1="6" y1="4" x2="6" y2="20"/><line x1="10" y1="8" x2="10" y2="20"/><line x1="14" y1="6" x2="14" y2="20"/><line x1="18" y1="10" x2="18" y2="20"/><line x1="4" y1="21" x2="20" y2="21"/></svg>
+                <span>Bottom</span>
+            </button>
+        </div>
+        <div class="menu-separator"></div>
+        <div class="align-menu-grid align-menu-grid-2">
+            <button class="align-menu-btn" data-action="align-selected" data-align-mode="distribute-horizontal" title="Distribute Horizontally" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><line x1="4" y1="4" x2="4" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/><line x1="20" y1="4" x2="20" y2="20"/><line x1="4" y1="12" x2="20" y2="12"/></svg>
+                <span>Space H</span>
+            </button>
+            <button class="align-menu-btn" data-action="align-selected" data-align-mode="distribute-vertical" title="Distribute Vertically" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><line x1="4" y1="4" x2="20" y2="4"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="20" x2="20" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+                <span>Space V</span>
+            </button>
+            <button class="align-menu-btn" data-action="align-selected" data-align-mode="compress-horizontal" title="Compress Horizontally" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><line x1="6" y1="4" x2="6" y2="20"/><line x1="18" y1="4" x2="18" y2="20"/><polyline points="9,12 6,12 9,9"/><polyline points="9,12 6,12 9,15"/><polyline points="15,12 18,12 15,9"/><polyline points="15,12 18,12 15,15"/></svg>
+                <span>Pack H</span>
+            </button>
+            <button class="align-menu-btn" data-action="align-selected" data-align-mode="compress-vertical" title="Compress Vertically" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="18" x2="20" y2="18"/><polyline points="12,9 12,6 9,9"/><polyline points="12,9 12,6 15,9"/><polyline points="12,15 12,18 9,15"/><polyline points="12,15 12,18 15,15"/></svg>
+                <span>Pack V</span>
+            </button>
+        </div>
+    </div>
+
+    <div id="analytics-card">
+        <div class="analytics-header">
+            <div class="analytics-heading">Branch Analytics</div>
+            <button id="analytics-toggle-btn" class="analytics-toggle-btn" type="button" aria-expanded="true" hidden>Hide</button>
+        </div>
+        <div id="analytics-body" class="analytics-body">
+            <div id="analytics-title" class="analytics-title">No node selected</div>
+            <div id="analytics-grid" class="analytics-grid"></div>
+            <div id="metadata-editor" class="metadata-editor" hidden>
+                <div class="metadata-heading">Node Metadata</div>
+                <div class="metadata-form">
+                    <label class="metadata-field" for="nodePriceInput">
+                        <span class="metadata-field-label">Price</span>
+                        <div class="metadata-price-row">
+                            <select id="nodePriceCurrencyInput" class="metadata-input metadata-select" aria-label="Price currency">
+                                <option value="USD">USD</option>
+                                <option value="EUR">EUR</option>
+                                <option value="GBP">GBP</option>
+                                <option value="JPY">JPY</option>
+                                <option value="CNY">CNY</option>
+                                <option value="TWD">TWD</option>
+                            </select>
+                            <input id="nodePriceInput" class="metadata-input" type="number" inputmode="decimal" step="0.01" placeholder="0.00" aria-label="Node price">
+                        </div>
+                    </label>
+                    <label class="metadata-field" for="nodeDateInput">
+                        <span class="metadata-field-label">Date</span>
+                        <input id="nodeDateInput" class="metadata-input" type="date" aria-label="Node date">
+                    </label>
+                    <label class="metadata-field" for="nodeTimeInput">
+                        <span class="metadata-field-label">Time</span>
+                        <input id="nodeTimeInput" class="metadata-input" type="time" step="60" aria-label="Node time">
+                    </label>
+                </div>
+            </div>
+            <div id="analytics-empty" class="analytics-empty">Select a single node to inspect its children, branch depth, and summed numbers.</div>
+            <div id="analytics-note" class="analytics-note"></div>
+        </div>
+    </div>
+
+    <div id="context-menu" class="menu-panel">
+        <div class="menu-item" data-action="trigger-selection-action" data-selection-action="copy">Copy <span class="menu-shortcut">Ctrl+C</span></div>
+        <div class="menu-item" data-action="trigger-selection-action" data-selection-action="paste">Paste <span class="menu-shortcut">Ctrl+V</span></div>
+        <div class="menu-item" data-action="trigger-selection-action" data-selection-action="duplicate">Duplicate <span class="menu-shortcut">Ctrl+D</span></div>
+        <div class="menu-separator node-context-separator hidden"></div>
+        <div class="menu-separator table-context-separator hidden"></div>
+        <div class="menu-item table-context-item hidden" data-action="apply-table-action" data-table-action="add-row">New Row</div>
+        <div class="menu-item table-context-item hidden" data-action="apply-table-action" data-table-action="add-column">New Column</div>
+        <div class="menu-item table-context-item hidden" data-action="apply-table-action" data-table-action="add-summary-row">Add Summary Row</div>
+        <div class="menu-item table-context-item hidden" data-action="apply-table-action" data-table-action="paste-markdown-table">Paste Markdown Table</div>
+        <div class="menu-item table-context-item hidden" data-action="apply-table-action" data-table-action="duplicate-row">Duplicate Row</div>
+        <div class="menu-item table-context-item hidden" data-action="apply-table-action" data-table-action="duplicate-column">Duplicate Column</div>
+        <div class="menu-item table-context-item hidden" data-action="apply-table-action" data-table-action="insert-link">Insert Link</div>
+        <div class="menu-item table-context-item hidden" data-action="apply-table-action" data-table-action="toggle-filters">Toggle Filters</div>
+        <div class="menu-item table-context-item hidden" data-action="apply-table-action" data-table-action="clear-filters">Clear Filters</div>
+        <div class="menu-item table-context-item hidden" data-action="apply-table-action" data-table-action="clear-cell-styles">Clear Cell Styling</div>
+        <div class="menu-item table-context-item hidden" data-action="apply-table-action" data-table-action="delete-row">Delete Row</div>
+        <div class="menu-item table-context-item hidden" data-action="apply-table-action" data-table-action="delete-column">Delete Column</div>
+        <div class="menu-separator table-context-separator hidden"></div>
+        <div class="menu-item node-context-item hidden" data-action="trigger-collapse-action" data-collapse-direction="collapse" data-collapse-type="dependency">Collapse Children (Part of)</div>
+        <div class="menu-item node-context-item hidden" data-action="trigger-collapse-action" data-collapse-direction="collapse" data-collapse-type="sequence">Collapse Children (Sequence)</div>
+        <div class="menu-item node-context-item hidden" data-action="trigger-collapse-action" data-collapse-direction="collapse" data-collapse-type="all">Collapse All</div>
+        <div class="menu-separator node-context-separator hidden"></div>
+        <div class="menu-item node-context-item hidden" data-action="trigger-collapse-action" data-collapse-direction="expand" data-collapse-type="dependency">Expand Children (Part of)</div>
+        <div class="menu-item node-context-item hidden" data-action="trigger-collapse-action" data-collapse-direction="expand" data-collapse-type="sequence">Expand Children (Sequence)</div>
+        <div class="menu-item node-context-item hidden" data-action="trigger-collapse-action" data-collapse-direction="expand" data-collapse-type="all">Expand All</div>
+        <div class="menu-separator"></div>
+        <div class="menu-item danger" data-action="trigger-selection-action" data-selection-action="delete">Delete <span class="menu-shortcut">Del</span></div>
+    </div>
+</div>
+
+<script src="./vendor/lucide-0.469.0.min.js"></script>
+<script src="./scripts/app-core.js"></script>
+<script src="./scripts/app-ui.js"></script>
+<script src="./scripts/app-nodes.js"></script>
+<script src="./scripts/app-tables.js"></script>
+<script src="./scripts/app-tables-clipboard.js"></script>
+<script src="./scripts/app-tables-ui.js"></script>
+<script src="./scripts/app-tables-lifecycle.js"></script>
+<script src="./scripts/app-tables-actions.js"></script>
+<script src="./scripts/app-layouts.js"></script>
+<script src="./scripts/app-analytics.js"></script>
+<script src="./scripts/app-interactions.js"></script>
+<script src="./scripts/app-io.js"></script>
+<script src="./scripts/app-init.js"></script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="80" fill="#0ea5e9"/>
+  <!-- Process node -->
+  <rect x="200" y="100" width="112" height="56" rx="10" fill="none" stroke="#ffffff" stroke-width="8"/>
+  <!-- Decision node -->
+  <polygon points="256,220 340,280 256,340 172,280" fill="none" stroke="#ffffff" stroke-width="8"/>
+  <!-- Arrow -->
+  <line x1="256" y1="156" x2="256" y2="214" stroke="#ffffff" stroke-width="6" marker-end="url(#arrow)"/>
+  <!-- Arrow from decision down -->
+  <line x1="256" y1="340" x2="256" y2="400" stroke="#ffffff" stroke-width="6" marker-end="url(#arrow)"/>
+  <!-- Arrow marker -->
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#ffffff"/>
+    </marker>
+  </defs>
+</svg>
