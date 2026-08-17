@@ -1,0 +1,12 @@
+node_modules/
+.wrangler/
+.git/
+.omo/
+test/
+*.log
+eslint.config.js
+package.json
+package-lock.json
+wrangler.jsonc
+.assetsignore
+.gitignore

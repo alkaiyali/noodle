@@ -14,6 +14,7 @@ var APP_ACTIONS = {
     'zoom-to-fit': () => zoomToFit(),
     'toggle-connect': () => toggleConnectMode(),
     'toggle-align-menu': () => toggleAlignMenu(),
+    'toggle-layout-menu': () => toggleLayoutMenu(),
     'align-selected': (actionEl) => {
         alignSelectedNodes(actionEl.dataset.alignMode);
         hideAlignMenu();
@@ -62,6 +63,7 @@ function bindAppActions() {
             return;
         }
         handler(actionEl);
+        if (actionEl.closest('#layoutMenuPanel')) hideLayoutMenu();
     });
 
     document.querySelectorAll('[data-toolbar-draggable="true"]').forEach(buttonEl => {
@@ -94,6 +96,7 @@ window.addEventListener('resize', () => {
     if (activeTableSummaryMenu?.tableId) positionTableSummaryMenu(activeTableSummaryMenu.tableId);
     positionSaveMenu();
     positionAlignMenu();
+    positionLayoutMenu();
     syncAnalyticsCardLayout();
 });
 

@@ -14,6 +14,8 @@ var saveMenuBtn = document.getElementById('saveMenuBtn');
 var saveMenuPanel = document.getElementById('saveMenuPanel');
 var alignMenuBtn = document.getElementById('alignMenuBtn');
 var alignMenuPanel = document.getElementById('alignMenuPanel');
+var layoutMenuBtn = document.getElementById('layoutMenuBtn');
+var layoutMenuPanel = document.getElementById('layoutMenuPanel');
 var formatTools = document.getElementById('formatTools');
 var tableTools = document.getElementById('tableTools');
 var richImageInput = document.getElementById('richImageInput');
@@ -51,6 +53,22 @@ var nodes = {};
 var connections = [];
 var nodeIdCounter = 0;
 var suspendNodeLabelBlurCommit = false;
+
+var cachedElementSizes = new WeakMap();
+
+function invalidateCachedElementSizes() {
+    cachedElementSizes = new WeakMap();
+}
+
+function getElementRenderSize(el) {
+    if (!el) return { w: 0, h: 0 };
+    let cached = cachedElementSizes.get(el);
+    if (!cached) {
+        cached = { w: el.offsetWidth, h: el.offsetHeight };
+        cachedElementSizes.set(el, cached);
+    }
+    return cached;
+}
 
 var selectedNodes = new Set();
 var selectedConnectionIndexes = new Set();
@@ -466,6 +484,7 @@ var pendingTableEditContext = null;
         const nodeType = options.nodeType || getNodeType(labelEl);
         const sanitizedHtml = sanitizeRichTextHTML(html, { allowTables: doesNodeTypeAllowTables(nodeType) });
         labelEl.innerHTML = sanitizedHtml || plainTextToRichHTML(text);
+        invalidateCachedElementSizes();
     }
 
     function getNodeLabelElement(nodeOrId) {
@@ -535,6 +554,7 @@ var pendingTableEditContext = null;
         node.height = normalizedSize.height;
         node.el.style.width = normalizedSize.width ? `${normalizedSize.width}px` : '';
         node.el.style.height = normalizedSize.height ? `${normalizedSize.height}px` : '';
+        invalidateCachedElementSizes();
 
         if (typeof drawConnections === 'function') drawConnections();
         if (typeof updateAnalyticsCard === 'function') updateAnalyticsCard();
@@ -787,6 +807,7 @@ var pendingTableEditContext = null;
         }
         hideContextMenu();
         hideAlignMenu();
+        hideLayoutMenu();
         saveMenuPanel.classList.add('visible');
         saveMenuBtn.classList.add('active');
         saveMenuBtn.setAttribute('aria-expanded', 'true');
@@ -819,10 +840,44 @@ var pendingTableEditContext = null;
         }
         hideContextMenu();
         hideSaveMenu();
+        hideLayoutMenu();
         alignMenuPanel.classList.add('visible');
         alignMenuBtn.classList.add('active');
         alignMenuBtn.setAttribute('aria-expanded', 'true');
         positionAlignMenu();
+    }
+
+    function positionLayoutMenu() {
+        if (!layoutMenuPanel || !layoutMenuBtn || !layoutMenuPanel.classList.contains('visible')) return;
+        const rect = layoutMenuBtn.getBoundingClientRect();
+        const menuWidth = layoutMenuPanel.offsetWidth;
+        const menuHeight = layoutMenuPanel.offsetHeight;
+        const left = Math.max(12, Math.min(rect.left + (rect.width / 2) - (menuWidth / 2), window.innerWidth - menuWidth - 12));
+        const top = Math.max(12, Math.min(rect.bottom + 12, window.innerHeight - menuHeight - 12));
+        layoutMenuPanel.style.left = `${left}px`;
+        layoutMenuPanel.style.top = `${top}px`;
+    }
+
+    function hideLayoutMenu() {
+        if (!layoutMenuPanel || !layoutMenuBtn) return;
+        layoutMenuPanel.classList.remove('visible');
+        layoutMenuBtn.classList.remove('active');
+        layoutMenuBtn.setAttribute('aria-expanded', 'false');
+    }
+
+    function toggleLayoutMenu() {
+        if (!layoutMenuPanel || !layoutMenuBtn) return;
+        if (layoutMenuPanel.classList.contains('visible')) {
+            hideLayoutMenu();
+            return;
+        }
+        hideContextMenu();
+        hideSaveMenu();
+        hideAlignMenu();
+        layoutMenuPanel.classList.add('visible');
+        layoutMenuBtn.classList.add('active');
+        layoutMenuBtn.setAttribute('aria-expanded', 'true');
+        positionLayoutMenu();
     }
 
     function openJSONFilePicker() {

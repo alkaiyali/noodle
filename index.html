@@ -183,18 +183,11 @@
                 </button>
             </div>
 
-            <div class="toolbar-section">
-                <button class="layout-btn" data-action="run-topological-layout" title="Topological Layout" aria-label="Topological Layout">
-                    <span>Topo</span>
-                </button>
-                <button class="layout-btn" data-action="run-visual-tidy-layout" title="Tidy Layout" aria-label="Tidy Layout">
-                    <span>Tidy</span>
-                </button>
-                <button class="layout-btn layout-btn-icon" data-action="rotate-layout-clockwise" title="Rotate Layout 90 Degrees Clockwise" aria-label="Rotate Layout 90 Degrees Clockwise">
-                    <i data-lucide="rotate-cw"></i>
-                </button>
-                <button class="layout-btn" id="snapGridBtn" data-action="toggle-snap-grid" title="Snap to Grid (toggle)" aria-label="Snap to Grid" aria-pressed="false">
-                    <span>Snap</span>
+            <div class="toolbar-section toolbar-section-wide" title="Layout controls">
+                <button id="layoutMenuBtn" class="layout-btn" data-action="toggle-layout-menu" title="Layout Menu" aria-label="Layout Menu" aria-expanded="false" type="button">
+                    <i data-lucide="shapes"></i>
+                    <span>Layout</span>
+                    <span class="toolbar-caret" aria-hidden="true">v</span>
                 </button>
             </div>
 
@@ -264,6 +257,27 @@
             <button class="align-menu-btn" data-action="align-selected" data-align-mode="compress-vertical" title="Compress Vertically" type="button">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="18" x2="20" y2="18"/><polyline points="12,9 12,6 9,9"/><polyline points="12,9 12,6 15,9"/><polyline points="12,15 12,18 9,15"/><polyline points="12,15 12,18 15,15"/></svg>
                 <span>Pack V</span>
+            </button>
+        </div>
+    </div>
+
+    <div id="layoutMenuPanel" class="menu-panel">
+        <div class="align-menu-grid">
+            <button class="align-menu-btn" data-action="run-topological-layout" title="Topological Layout" type="button">
+                <i data-lucide="layers"></i>
+                <span>Topo</span>
+            </button>
+            <button class="align-menu-btn" data-action="run-visual-tidy-layout" title="Tidy Layout" type="button">
+                <i data-lucide="sparkles"></i>
+                <span>Tidy</span>
+            </button>
+            <button class="align-menu-btn" data-action="rotate-layout-clockwise" title="Rotate Layout 90 Degrees Clockwise" type="button">
+                <i data-lucide="rotate-cw"></i>
+                <span>Rotate</span>
+            </button>
+            <button class="align-menu-btn" id="snapGridBtn" data-action="toggle-snap-grid" title="Snap to Grid" aria-pressed="false" type="button">
+                <i data-lucide="grid"></i>
+                <span>Snap</span>
             </button>
         </div>
     </div>

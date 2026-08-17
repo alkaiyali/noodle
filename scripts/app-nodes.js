@@ -88,6 +88,7 @@
         const hasEntries = entries.length > 0;
         metadataEl.hidden = !hasEntries;
         node.el.classList.toggle('has-metadata', hasEntries);
+        invalidateCachedElementSizes();
     }
 
     function isGroupNode(nodeOrId) {
@@ -373,6 +374,7 @@
             this.contentEditable = "false";
             updateRichTextToolbarVisibility();
             updateAnalyticsCard();
+            invalidateCachedElementSizes();
             drawConnections();
             saveHistoryState();
         });
@@ -388,6 +390,7 @@
             if (e.target.checked) e.target.setAttribute('checked', 'checked');
             else e.target.removeAttribute('checked');
             updateAnalyticsCard();
+            invalidateCachedElementSizes();
             drawConnections();
             saveHistoryState();
         });
@@ -431,28 +434,64 @@
             .map(c => c.to))];
     }
 
-    function getDescendants(startId, connectionType = null) {
-        let desc = new Set();
-        let queue = [...getChildIds(startId, connectionType)];
-        while(queue.length > 0) {
-            let curr = queue.shift();
-            if (curr === startId || desc.has(curr)) continue;
-            desc.add(curr);
-            getChildIds(curr).forEach(childId => {
-                if (childId !== startId && !desc.has(childId)) queue.push(childId);
+function buildChildIndex() {
+        const index = new Map();
+        connections.forEach(conn => {
+            if (!nodes[conn.to]) return;
+            let toTypes = index.get(conn.from);
+            if (!toTypes) { toTypes = new Map(); index.set(conn.from, toTypes); }
+            let types = toTypes.get(conn.to);
+            if (!types) { types = new Set(); toTypes.set(conn.to, types); }
+            types.add(normalizeConnectionType(conn.type));
+        });
+        return index;
+    }
+
+    function getChildIdsFromIndex(index, nodeId, connectionType = null) {
+        const toTypes = index.get(nodeId);
+        if (!toTypes) return [];
+        const normalizedType = connectionType && connectionType !== 'all'
+            ? normalizeConnectionType(connectionType)
+            : null;
+        const directChildren = [];
+        toTypes.forEach((types, toId) => {
+            if (!normalizedType || types.has(normalizedType)) directChildren.push(toId);
+        });
+        return directChildren;
+    }
+
+    function collectDescendantsFromIndex(index, startId, connectionType, outSet) {
+        const queue = [];
+        const enqueued = new Set(outSet);
+        getChildIdsFromIndex(index, startId, connectionType).forEach(childId => {
+            if (childId !== startId && !enqueued.has(childId)) { enqueued.add(childId); queue.push(childId); }
+        });
+        for (let i = 0; i < queue.length; i++) {
+            const curr = queue[i];
+            if (outSet.has(curr)) continue;
+            outSet.add(curr);
+            getChildIdsFromIndex(index, curr).forEach(childId => {
+                if (childId !== startId && !enqueued.has(childId)) { enqueued.add(childId); queue.push(childId); }
             });
         }
+    }
+
+    function getDescendants(startId, connectionType = null) {
+        const index = buildChildIndex();
+        const desc = new Set();
+        collectDescendantsFromIndex(index, startId, connectionType, desc);
         return Array.from(desc);
     }
 
     function getCollapsedDescendantIds(nodeId) {
         if (!nodes[nodeId]) return [];
+        const index = buildChildIndex();
         const descendantIds = new Set();
         if (isCollapseTypeActive(nodeId, 'sequence')) {
-            getDescendants(nodeId, 'sequence').forEach(descendantId => descendantIds.add(descendantId));
+            collectDescendantsFromIndex(index, nodeId, 'sequence', descendantIds);
         }
         if (isCollapseTypeActive(nodeId, 'dependency')) {
-            getDescendants(nodeId, 'dependency').forEach(descendantId => descendantIds.add(descendantId));
+            collectDescendantsFromIndex(index, nodeId, 'dependency', descendantIds);
         }
         return Array.from(descendantIds);
     }
@@ -485,12 +524,13 @@
         }
 
         updateVisibility();
+        invalidateCachedElementSizes();
         if (recordHistory) saveHistoryState();
         else scheduleAutosave();
         return true;
     }
 
-    function pruneCollapsedNodeState() {
+function pruneCollapsedNodeState() {
         const validNodeIds = new Set(Object.keys(nodes));
         [collapsedSequenceNodes, collapsedDependencyNodes].forEach(collapseSet => {
             Array.from(collapseSet).forEach(nodeId => {
@@ -499,17 +539,19 @@
                 }
             });
         });
+        const index = buildChildIndex();
         validNodeIds.forEach(nodeId => {
-            if (!getChildIds(nodeId, 'sequence').length) collapsedSequenceNodes.delete(nodeId);
-            if (!getChildIds(nodeId, 'dependency').length) collapsedDependencyNodes.delete(nodeId);
+            if (!getChildIdsFromIndex(index, nodeId, 'sequence').length) collapsedSequenceNodes.delete(nodeId);
+            if (!getChildIdsFromIndex(index, nodeId, 'dependency').length) collapsedDependencyNodes.delete(nodeId);
         });
     }
 
     function updateVisibility() {
         pruneCollapsedNodeState();
+        const index = buildChildIndex();
         let hidden = new Set();
-        collapsedSequenceNodes.forEach(cId => { getDescendants(cId, 'sequence').forEach(dId => hidden.add(dId)); });
-        collapsedDependencyNodes.forEach(cId => { getDescendants(cId, 'dependency').forEach(dId => hidden.add(dId)); });
+        collapsedSequenceNodes.forEach(cId => { collectDescendantsFromIndex(index, cId, 'sequence', hidden); });
+        collapsedDependencyNodes.forEach(cId => { collectDescendantsFromIndex(index, cId, 'dependency', hidden); });
         Array.from(hidden).forEach(nodeId => {
             if (isGroupNode(nodeId)) getGroupDescendantIds(nodeId).forEach(descendantId => hidden.add(descendantId));
         });
@@ -518,7 +560,7 @@
             if (hidden.has(id)) { node.el.style.display = 'none'; if (selectedNodes.has(id)) selectedNodes.delete(id); } 
             else { node.el.style.display = 'flex'; }
             const btn = node.el.querySelector('.collapse-btn');
-            const hasChildren = getChildIds(id).length > 0;
+            const hasChildren = getChildIdsFromIndex(index, id).length > 0;
             if (hasChildren && !hidden.has(id)) {
                 const isCollapsed = hasCollapsedBranches(id);
                 btn.style.display = 'flex'; btn.innerHTML = isCollapsed ? '+' : '-';

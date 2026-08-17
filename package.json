@@ -5,11 +5,13 @@
   "description": "Pro Flowchart Maker - offline-first flowchart/whiteboard app",
   "scripts": {
     "test": "node test/boot.test.js",
-    "lint": "eslint scripts"
+    "lint": "eslint scripts",
+    "deploy": "wrangler deploy"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "eslint": "^10.8.0",
-    "jsdom": "^26.1.0"
+    "jsdom": "^26.1.0",
+    "wrangler": "^4.123.0"
   }
 }

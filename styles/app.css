@@ -252,6 +252,10 @@
                 animation: none;
             }
         }
+
+        body.canvas-interacting .floating-bar::before {
+            animation: none;
+        }
         
         button {
             padding: 10px 16px;
@@ -1575,7 +1579,7 @@
         }
         .collapse-btn:hover { border-color: var(--primary); color: var(--primary); }
 
-        .straight-line { stroke: #64748b; stroke-width: 2; transition: all 0.2s; }
+        .straight-line { stroke: #64748b; stroke-width: 2; transition: stroke 0.15s ease, stroke-width 0.15s ease; }
         .straight-line.dependency-line { stroke-dasharray: 10 7; }
         .straight-line.selected-line { stroke: var(--danger); stroke-width: 4; }
         .connection-group { pointer-events: auto; cursor: pointer; }
@@ -1691,6 +1695,12 @@
             min-width: 280px;
         }
         #alignMenuPanel.visible { display: flex; }
+        #layoutMenuPanel {
+            position: fixed;
+            z-index: 110;
+            min-width: 280px;
+        }
+        #layoutMenuPanel.visible { display: flex; }
         .align-menu-grid {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
@@ -1721,6 +1731,14 @@
             background: #dbeafe;
             border-color: rgba(59, 130, 246, 0.22);
             color: #1d4ed8;
+        }
+        .align-menu-btn.active {
+            background: #dbeafe;
+            border-color: rgba(59, 130, 246, 0.4);
+            color: #1d4ed8;
+        }
+        .align-menu-btn.active svg {
+            stroke-width: 2.4;
         }
         .align-menu-btn svg {
             width: 20px;

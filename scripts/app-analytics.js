@@ -143,13 +143,14 @@
     }
 
     function analyzeBranch(rootId) {
+        const index = buildChildIndex();
         const descendants = new Set();
         const countedNodes = new Set();
         let deepestBranch = 0;
         let numericSum = 0;
 
         function walk(nodeId, depth, path) {
-            getChildIds(nodeId).forEach(childId => {
+            getChildIdsFromIndex(index, nodeId).forEach(childId => {
                 if (path.has(childId)) return;
                 descendants.add(childId);
                 if (!countedNodes.has(childId)) {
@@ -166,7 +167,7 @@
         walk(rootId, 0, new Set([rootId]));
         return {
             totalChildren: descendants.size,
-            directChildren: getChildIds(rootId).length,
+            directChildren: getChildIdsFromIndex(index, rootId).length,
             deepestBranch,
             numericSum
         };

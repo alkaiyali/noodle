@@ -540,6 +540,7 @@
         tableData.filters = normalizeTableFilters(tableData.filters, matrix.header.length);
         tableData.sortState = normalizeTableSortState(tableData.sortState, matrix.header.length);
         setTableMarkup(tableData, buildTableHTMLFromMatrix(matrix));
+        invalidateCachedElementSizes();
         if (wasEditing) {
             beginTableEditing(tableId, getTableCellByContext(tableId, focusContext || { section: 'body', rowIndex: 0, colIndex: 0 }));
         } else {

@@ -1,5 +1,25 @@
 // Table lifecycle, creation, and shared table state helpers.
 
+    // Per-table debounce state for filter input: tableId -> { timer, columnIndex, value }.
+    const tableFilterDebounce = new Map();
+
+    function flushTableFilterDebounce(tableId) {
+        const pending = tableFilterDebounce.get(tableId);
+        if (!pending) return false;
+        clearTimeout(pending.timer);
+        tableFilterDebounce.delete(tableId);
+        setTableFilterValue(tableId, pending.columnIndex, pending.value);
+        return true;
+    }
+
+    function cancelTableFilterDebounce(tableId) {
+        const pending = tableFilterDebounce.get(tableId);
+        if (!pending) return false;
+        clearTimeout(pending.timer);
+        tableFilterDebounce.delete(tableId);
+        return true;
+    }
+
     function setTablePosition(tableOrId, x, y) {
         const tableData = typeof tableOrId === 'string' ? tables[tableOrId] : tableOrId;
         if (!tableData) return;
@@ -147,17 +167,27 @@
                 closeTableSummaryMenu({ tableId: id });
             }
         });
-        tableEl.addEventListener('input', (e) => {
+tableEl.addEventListener('input', (e) => {
             const filterInput = e.target.closest('.table-filter-menu-input');
             if (filterInput) {
-                setTableFilterValue(id, Number(filterInput.dataset.filterIndex), filterInput.value);
+                const columnIndex = Number(filterInput.dataset.filterIndex);
+                const value = filterInput.value;
+                const pending = tableFilterDebounce.get(id);
+                if (pending) clearTimeout(pending.timer);
+                const timer = window.setTimeout(() => {
+                    tableFilterDebounce.delete(id);
+                    setTableFilterValue(id, columnIndex, value);
+                }, 120);
+                tableFilterDebounce.set(id, { timer, columnIndex, value });
                 return;
             }
+            invalidateCachedElementSizes();
             queueTableStructureHandleLayout(id);
         });
         tableEl.addEventListener('change', (e) => {
             const filterInput = e.target.closest('.table-filter-menu-input');
             if (!filterInput) return;
+            flushTableFilterDebounce(id);
             closeTableFilterMenu({ tableId: id, commitHistory: true });
         });
         tableEl.addEventListener('keydown', (e) => {
@@ -166,11 +196,13 @@
                 e.stopPropagation();
                 if (e.key === 'Enter') {
                     e.preventDefault();
+                    flushTableFilterDebounce(id);
                     closeTableFilterMenu({ tableId: id, commitHistory: true });
                     return;
                 }
                 if (e.key === 'Escape') {
                     e.preventDefault();
+                    cancelTableFilterDebounce(id);
                     if (activeTableFilterMenu?.tableId === id) {
                         setTableFilterValue(id, activeTableFilterMenu.columnIndex, activeTableFilterMenu.initialValue, { recordHistory: false });
                     }

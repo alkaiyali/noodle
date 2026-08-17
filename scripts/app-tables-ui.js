@@ -1,5 +1,9 @@
 // Table menus, handles, and table-scoped UI helpers.
 
+    // Persistent structure-handle cache keyed by tableId -> { column: Map(index->buttonEl), row: Map(index->buttonEl) }.
+    // Handles are created once per (tableId, kind, index) and reused across layout ticks.
+    const handlesCache = new Map();
+
     function getTableFilterMatchText(cellEl) {
         return String(cellEl?.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
     }
@@ -136,16 +140,24 @@
         const activeFilters = filters.map(value => value.toLowerCase());
         const filtersAreActive = shouldShowFilters && activeFilters.some(Boolean);
         tableData.el.classList.toggle('filters-active', filtersAreActive);
-        getTableBodyRows(tableData).forEach(row => {
-            const rowCells = Array.from(row.children).filter(cell => cell.matches('th, td'));
-            const matchesAllFilters = (!shouldShowFilters ? [] : activeFilters).every((filterValue, index) => {
-                if (!filterValue) return true;
-                return getTableFilterMatchText(rowCells[index]).includes(filterValue);
+        if (filtersAreActive) {
+            getTableBodyRows(tableData).forEach(row => {
+                const rowCells = Array.from(row.children).filter(cell => cell.matches('th, td'));
+                const matchesAllFilters = activeFilters.every((filterValue, index) => {
+                    if (!filterValue) return true;
+                    return getTableFilterMatchText(rowCells[index]).includes(filterValue);
+                });
+                row.hidden = !matchesAllFilters;
             });
-            row.hidden = !matchesAllFilters;
-        });
+        } else {
+            getTableBodyRows(tableData).forEach(row => { row.hidden = false; });
+        }
         const summaryRowEl = getTableSummaryRowElement(tableData);
         if (summaryRowEl) summaryRowEl.hidden = false;
+
+        // Mark that the filter UI was just synced synchronously so the next
+        // queued handle-layout rAF tick can skip the redundant re-sync.
+        tableData.filterUISynced = true;
 
         if (!shouldShowFilters) {
             closeTableFilterMenu({ tableId: tableData.id, commitHistory: false });
@@ -259,13 +271,16 @@
 
     function attachTableStructureHandles(tableOrId) {
         const tableData = typeof tableOrId === 'string' ? tables[tableOrId] : tableOrId;
+        if (!tableData) {
+            handlesCache.delete(typeof tableOrId === 'string' ? tableOrId : tableOrId?.id);
+            return;
+        }
         const tableGrid = getTableGrid(tableData);
         const columnHandleLayer = getTableColumnHandleLayer(tableData);
         const rowHandleLayer = getTableRowHandleLayer(tableData);
         const headerCells = getTableHeaderCells(tableData);
-        if (!tableData || !tableGrid || !columnHandleLayer || !rowHandleLayer) return;
+        if (!tableGrid || !columnHandleLayer || !rowHandleLayer) return;
 
-        tableData.el.querySelectorAll('.table-structure-handle').forEach(handle => handle.remove());
         const gridRect = tableGrid.getBoundingClientRect();
         const tableRect = tableData.el.getBoundingClientRect();
         columnHandleLayer.style.left = `${gridRect.left - tableRect.left}px`;
@@ -277,21 +292,56 @@
         rowHandleLayer.style.width = '0px';
         rowHandleLayer.style.height = `${gridRect.height}px`;
 
+        let cacheEntry = handlesCache.get(tableData.id);
+        if (!cacheEntry) {
+            cacheEntry = { column: new Map(), row: new Map() };
+            handlesCache.set(tableData.id, cacheEntry);
+        }
+
         headerCells.forEach((cell, index) => {
-            const handle = buildTableStructureHandle(tableData.id, 'column', index, `Select or reorder column ${index + 1}`);
+            let handle = cacheEntry.column.get(index);
+            if (!handle) {
+                handle = buildTableStructureHandle(tableData.id, 'column', index, `Select or reorder column ${index + 1}`);
+                cacheEntry.column.set(index, handle);
+            }
+            handle.dataset.index = String(index);
             handle.style.left = `${cell.offsetLeft + (cell.offsetWidth / 2)}px`;
             handle.style.top = '-7px';
             columnHandleLayer.appendChild(handle);
         });
+        for (const [index, handle] of cacheEntry.column) {
+            if (index >= headerCells.length) {
+                handle.remove();
+                cacheEntry.column.delete(index);
+            }
+        }
 
-        if (hasActiveTableFilters(tableData)) return;
+        if (hasActiveTableFilters(tableData)) {
+            for (const [index, handle] of cacheEntry.row) {
+                handle.remove();
+                cacheEntry.row.delete(index);
+            }
+            return;
+        }
 
-        getTableBodyRows(tableData).forEach((row, index) => {
-            const handle = buildTableStructureHandle(tableData.id, 'row', index, `Select or reorder row ${index + 1}`);
+        const bodyRows = getTableBodyRows(tableData);
+        bodyRows.forEach((row, index) => {
+            let handle = cacheEntry.row.get(index);
+            if (!handle) {
+                handle = buildTableStructureHandle(tableData.id, 'row', index, `Select or reorder row ${index + 1}`);
+                cacheEntry.row.set(index, handle);
+            }
+            handle.dataset.index = String(index);
             handle.style.left = '-7px';
             handle.style.top = `${row.offsetTop + (row.offsetHeight / 2)}px`;
             rowHandleLayer.appendChild(handle);
         });
+        for (const [index, handle] of cacheEntry.row) {
+            if (index >= bodyRows.length) {
+                handle.remove();
+                cacheEntry.row.delete(index);
+            }
+        }
     }
 
     function queueTableStructureHandleLayout(tableOrId) {
@@ -300,7 +350,10 @@
         if (tableData.handleLayoutFrameId) window.cancelAnimationFrame(tableData.handleLayoutFrameId);
         tableData.handleLayoutFrameId = window.requestAnimationFrame(() => {
             tableData.handleLayoutFrameId = null;
-            syncTableFilterUI(tableData);
+            invalidateCachedElementSizes();
+            const shouldSyncFilterUI = !tableData.filterUISynced;
+            tableData.filterUISynced = false;
+            if (shouldSyncFilterUI) syncTableFilterUI(tableData);
             attachTableStructureHandles(tableData);
             syncActiveTableSelectionUI(tableData.id);
             positionTableSummaryMenu(tableData);

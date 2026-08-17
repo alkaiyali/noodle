@@ -11,17 +11,24 @@
     var LONG_PRESS_MOVE_THRESHOLD_PX = 12;
     var nudgeHistoryPending = false;
     var nudgeHistoryClearTimer = null;
+    var renderedConnectionGroups = [];
+    var connectionsRafId = null;
+    var connectPreviewLine = null;
+    var pendingRightMenuTimer = null;
+    var pendingRightMenuState = null;
 
     function getDroppedOnNodeId(draggedNodeId) {
         const dragged = nodes[draggedNodeId];
         if (!dragged) return null;
-        const cx = dragged.x + dragged.el.offsetWidth / 2;
-        const cy = dragged.y + dragged.el.offsetHeight / 2;
+        const draggedSize = getElementRenderSize(dragged.el);
+        const cx = dragged.x + draggedSize.w / 2;
+        const cy = dragged.y + draggedSize.h / 2;
         for (const [id, node] of Object.entries(nodes)) {
             if (id === draggedNodeId) continue;
             if (node.el.style.display === 'none') continue;
             const nx = node.x, ny = node.y;
-            const nw = node.el.offsetWidth, nh = node.el.offsetHeight;
+            const size = getElementRenderSize(node.el);
+            const nw = size.w, nh = size.h;
             if (cx >= nx && cx <= nx + nw && cy >= ny && cy <= ny + nh) return id;
         }
         return null;
@@ -522,10 +529,10 @@
         if (!nFrom || !nTo) return null;
         if (nFrom.el.style.display === 'none' || nTo.el.style.display === 'none') return null;
 
-        const sCX = nFrom.x + nFrom.el.offsetWidth / 2;
-        const sCY = nFrom.y + nFrom.el.offsetHeight / 2;
-        const eCX = nTo.x + nTo.el.offsetWidth / 2;
-        const eCY = nTo.y + nTo.el.offsetHeight / 2;
+        const sCX = nFrom.x + getElementRenderSize(nFrom.el).w / 2;
+        const sCY = nFrom.y + getElementRenderSize(nFrom.el).h / 2;
+        const eCX = nTo.x + getElementRenderSize(nTo.el).w / 2;
+        const eCY = nTo.y + getElementRenderSize(nTo.el).h / 2;
         const start = getEdgePoint(nFrom, eCX, eCY);
         const end = getEdgePoint(nTo, sCX, sCY);
 
@@ -620,6 +627,7 @@
     function syncRichTextEditorLayout() {
         updateRichTextToolbarVisibility();
         updateAnalyticsCard();
+        invalidateCachedElementSizes();
         drawConnections();
     }
 
@@ -949,16 +957,14 @@
 
     // ===== Smart alignment guides + grid snap =====
 
-    var SNAP_GUIDE_THRESHOLD_PX = 6;
-    var snapGuideOverlayEl = null;
-
     function getSelectionSnapBounds() {
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
         let found = false;
         getDraggedNodeIds().forEach(id => {
             const node = nodes[id];
             if (!node) return;
-            const w = node.el.offsetWidth || 0, h = node.el.offsetHeight || 0;
+            const size = getElementRenderSize(node.el);
+            const w = size.w || 0, h = size.h || 0;
             minX = Math.min(minX, node.x); minY = Math.min(minY, node.y);
             maxX = Math.max(maxX, node.x + w); maxY = Math.max(maxY, node.y + h);
             found = true;
@@ -966,7 +972,8 @@
         getDraggedTableIds().forEach(id => {
             const table = tables[id];
             if (!table) return;
-            const w = table.el.offsetWidth || 0, h = table.el.offsetHeight || 0;
+            const size = getElementRenderSize(table.el);
+            const w = size.w || 0, h = size.h || 0;
             minX = Math.min(minX, table.x); minY = Math.min(minY, table.y);
             maxX = Math.max(maxX, table.x + w); maxY = Math.max(maxY, table.y + h);
             found = true;
@@ -975,101 +982,19 @@
         return { left: minX, top: minY, right: maxX, bottom: maxY, cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 };
     }
 
-    function getSnapCandidateRects() {
-        const draggedIds = new Set([...getDraggedNodeIds(), ...getDraggedTableIds()]);
-        const rects = [];
-        Object.values(nodes).forEach(node => {
-            if (draggedIds.has(node.id) || node.el.style.display === 'none') return;
-            const w = node.el.offsetWidth || 0, h = node.el.offsetHeight || 0;
-            rects.push({ left: node.x, top: node.y, right: node.x + w, bottom: node.y + h, cx: node.x + w / 2, cy: node.y + h / 2 });
-        });
-        Object.values(tables).forEach(table => {
-            if (draggedIds.has(table.id) || table.el.style.display === 'none') return;
-            const w = table.el.offsetWidth || 0, h = table.el.offsetHeight || 0;
-            rects.push({ left: table.x, top: table.y, right: table.x + w, bottom: table.y + h, cx: table.x + w / 2, cy: table.y + h / 2 });
-        });
-        return rects;
-    }
-
-    function getSnapGuideOverlay() {
-        if (snapGuideOverlayEl && snapGuideOverlayEl.isConnected) return snapGuideOverlayEl;
-        snapGuideOverlayEl = document.createElement('div');
-        snapGuideOverlayEl.className = 'snap-guide-overlay';
-        viewport.appendChild(snapGuideOverlayEl);
-        return snapGuideOverlayEl;
-    }
-
-    function renderSnapGuides(guides) {
-        clearSnapGuides();
-        if (!guides || !guides.length) return;
-        const overlay = getSnapGuideOverlay();
-        const viewportRect = viewport.getBoundingClientRect();
-        guides.forEach(guide => {
-            const line = document.createElement('div');
-            if (guide.x !== undefined) {
-                line.className = 'snap-guide snap-guide-v';
-                line.style.left = `${guide.x - viewportRect.left}px`;
-            } else {
-                line.className = 'snap-guide snap-guide-h';
-                line.style.top = `${guide.y - viewportRect.top}px`;
-            }
-            overlay.appendChild(line);
-        });
-    }
-
-    function clearSnapGuides() {
-        if (snapGuideOverlayEl && snapGuideOverlayEl.isConnected) snapGuideOverlayEl.replaceChildren();
-    }
-
     function computeSnapGuides(rawDx, rawDy) {
         const bounds = getSelectionSnapBounds();
-        if (!bounds) return { dx: rawDx, dy: rawDy, guides: [] };
-        const candidates = getSnapCandidateRects();
-        const threshold = SNAP_GUIDE_THRESHOLD_PX / zoom;
-        const gridEnabled = isSnapToGridEnabled();
+        if (!bounds) return { dx: rawDx, dy: rawDy };
 
         let dx = rawDx, dy = rawDy;
-        let bestXDx = null, bestYDy = null;
-        let bestXGuide = null, bestYGuide = null;
-
-        candidates.forEach(candidate => {
-            ['left', 'cx', 'right'].forEach(selEdge => {
-                ['left', 'cx', 'right'].forEach(candidateEdge => {
-                    const delta = candidate[candidateEdge] - (bounds[selEdge] + rawDx);
-                    if (Math.abs(delta) <= threshold && (bestXDx === null || Math.abs(delta) < Math.abs(bestXDx))) {
-                        bestXDx = delta;
-                        bestXGuide = { screenX: candidate[candidateEdge] * zoom + panX };
-                    }
-                });
-            });
-            ['top', 'cy', 'bottom'].forEach(selEdge => {
-                ['top', 'cy', 'bottom'].forEach(candidateEdge => {
-                    const delta = candidate[candidateEdge] - (bounds[selEdge] + rawDy);
-                    if (Math.abs(delta) <= threshold && (bestYDy === null || Math.abs(delta) < Math.abs(bestYDy))) {
-                        bestYDy = delta;
-                        bestYGuide = { screenY: candidate[candidateEdge] * zoom + panY };
-                    }
-                });
-            });
-        });
-
-        const guides = [];
-        if (bestXDx !== null) {
-            dx = rawDx + bestXDx;
-            guides.push({ x: bestXGuide.screenX });
-        } else if (gridEnabled) {
+        if (isSnapToGridEnabled()) {
             const nextLeft = bounds.left + dx;
             dx += Math.round(nextLeft / SNAP_GRID_SIZE) * SNAP_GRID_SIZE - nextLeft;
-        }
-        if (bestYDy !== null) {
-            dy = rawDy + bestYDy;
-            guides.push({ y: bestYGuide.screenY });
-        } else if (gridEnabled) {
             const nextTop = bounds.top + dy;
             dy += Math.round(nextTop / SNAP_GRID_SIZE) * SNAP_GRID_SIZE - nextTop;
         }
 
-        return { dx, dy, guides };
+        return { dx, dy };
     }
 
     function moveDraggedSelection(dx, dy) {
@@ -1197,6 +1122,9 @@
     window.addEventListener('pointermove', (e) => {
         updateTrackedPointer(e);
         updateLongPressFromMove(e);
+        if (currentMode === 'IDLE' && activePointers.size === 0 && !activeToolbarDrag) {
+            return;
+        }
         if (currentMode === 'GESTURE') {
             updateTouchGesture();
             return;
@@ -1219,7 +1147,10 @@
             clearDeleteDropZoneState();
             clearTextSelection();
             const dx = e.clientX - lastPoint.x; const dy = e.clientY - lastPoint.y;
-            if (Math.abs(dx) > 3 || Math.abs(dy) > 3) hasPanned = true;
+            if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+                hasPanned = true;
+                cancelDeferredContextMenu();
+            }
             panX += dx; panY += dy; updateTransform(); lastPoint = { x: e.clientX, y: e.clientY };
         } else if (currentMode === 'SELECT') {
             clearDeleteDropZoneState();
@@ -1238,9 +1169,7 @@
             if (isDragging && !isPointOverDeleteBar(e.clientX, e.clientY)) {
                 const snapResult = computeSnapGuides(rawDx, rawDy);
                 moveDraggedSelection(snapResult.dx, snapResult.dy);
-                renderSnapGuides(snapResult.guides);
             } else {
-                clearSnapGuides();
                 moveDraggedSelection(rawDx, rawDy);
             }
             if (isDragging) updateDeleteDropZoneState(true, isPointOverDeleteBar(e.clientX, e.clientY));
@@ -1265,9 +1194,7 @@
             if (isDragging && !isPointOverDeleteBar(e.clientX, e.clientY)) {
                 const snapResult = computeSnapGuides(rawDx, rawDy);
                 moveDraggedSelection(snapResult.dx, snapResult.dy);
-                renderSnapGuides(snapResult.guides);
             } else {
-                clearSnapGuides();
                 moveDraggedSelection(rawDx, rawDy);
             }
             if (isDragging) updateDeleteDropZoneState(true, isPointOverDeleteBar(e.clientX, e.clientY));
@@ -1291,6 +1218,7 @@
 
     window.addEventListener('pointerup', (e) => {
         if (finishToolbarItemDrag(e)) return;
+        if (e.button === 2) flushDeferredContextMenu();
         cancelLongPress(e.pointerId);
         const completedGesture = currentMode === 'GESTURE';
         activePointers.delete(e.pointerId);
@@ -1303,7 +1231,6 @@
         let enteredEditing = false;
         const didDropOnDeleteBar = isDragging && (completedMode === 'DRAG_NODE' || completedMode === 'DRAG_TABLE') && isPointOverDeleteBar(e.clientX, e.clientY);
         clearDeleteDropZoneState();
-        clearSnapGuides();
         if (completedMode === 'SELECT') selectionBoxUI.style.display = 'none';
         if (completedMode === 'DRAG_NODE' && !isDragging && pendingNodeEditId && selectedNodes.size === 1 && selectedNodes.has(pendingNodeEditId) && selectedTableIds.size === 0) {
             setCanvasSelectionSuppressed(false);
@@ -1378,7 +1305,6 @@
         pendingTableEditContext = null;
         finishToolbarItemDrag(e, { cancelled: true });
         clearDeleteDropZoneState();
-        clearSnapGuides();
     });
 
     function openContextMenuAtTarget(target, clientX, clientY) {
@@ -1388,6 +1314,7 @@
         if (hasPanned) return false;
         hideSaveMenu();
         hideAlignMenu();
+        hideLayoutMenu();
         if (targetEl.closest('#toolbarStack')) return false;
         const editingLabel = targetEl.closest('.label');
         pendingContextTextCopy = editingLabel && editingLabel.isContentEditable ? getSelectedEditingText() : '';
@@ -1429,8 +1356,56 @@
         return true;
     }
 
+    function cancelDeferredContextMenu() {
+        if (pendingRightMenuTimer !== null) {
+            window.clearTimeout(pendingRightMenuTimer);
+            pendingRightMenuTimer = null;
+        }
+        pendingRightMenuState = null;
+    }
+
+    function flushDeferredContextMenu() {
+        if (pendingRightMenuTimer !== null) {
+            window.clearTimeout(pendingRightMenuTimer);
+            pendingRightMenuTimer = null;
+        }
+        const state = pendingRightMenuState;
+        pendingRightMenuState = null;
+        if (!state || hasPanned) return;
+        hasPanned = false;
+        openContextMenuAtTarget(state.targetEl, state.x, state.y);
+    }
+
+    function isCanvasPanTarget(targetEl) {
+        return targetEl instanceof Element &&
+            !targetEl.closest('.node') &&
+            !targetEl.closest('.canvas-table') &&
+            !targetEl.closest('.connection-group') &&
+            !targetEl.closest('#toolbarStack') &&
+            !targetEl.closest('.menu-panel') &&
+            targetEl !== connectionLabelEditor;
+    }
+
+    function deferCanvasContextMenu(targetEl, clientX, clientY) {
+        cancelDeferredContextMenu();
+        pendingRightMenuState = { targetEl, x: clientX, y: clientY };
+        pendingRightMenuTimer = window.setTimeout(() => {
+            pendingRightMenuTimer = null;
+            const state = pendingRightMenuState;
+            pendingRightMenuState = null;
+            if (!state || hasPanned) return;
+            hasPanned = false;
+            openContextMenuAtTarget(state.targetEl, state.x, state.y);
+        }, 150);
+    }
+
     window.addEventListener('contextmenu', (e) => {
         e.preventDefault();
+        if (isCanvasPanTarget(e.target)) {
+            deferCanvasContextMenu(e.target, e.clientX, e.clientY);
+            return;
+        }
+        hasPanned = false;
         openContextMenuAtTarget(e.target, e.clientX, e.clientY);
     });
 
@@ -1444,8 +1419,10 @@
     window.addEventListener('pointerdown', (e) => {
         const isSaveMenuTarget = e.target.closest('#saveMenuPanel') || e.target.closest('#saveMenuBtn');
         const isAlignMenuTarget = e.target.closest('#alignMenuPanel') || e.target.closest('#alignMenuBtn');
+        const isLayoutMenuTarget = e.target.closest('#layoutMenuPanel') || e.target.closest('#layoutMenuBtn');
         if (!isSaveMenuTarget) hideSaveMenu();
         if (!isAlignMenuTarget) hideAlignMenu();
+        if (!isLayoutMenuTarget) hideLayoutMenu();
     });
 
     function clearTextSelection() {
@@ -1845,7 +1822,8 @@
     }
 
     function getEdgePoint(node, targetX, targetY) {
-        const w = node.el.offsetWidth, h = node.el.offsetHeight;
+        const size = getElementRenderSize(node.el);
+        const w = size.w, h = size.h;
         const cx = node.x + w / 2, cy = node.y + h / 2;
         const dx = targetX - cx, dy = targetY - cy;
         if (dx === 0 && dy === 0) return { x: cx, y: cy };
@@ -1920,17 +1898,18 @@
             return ancestorGroupIds.has(endpointId) || descendantIds.has(endpointId);
         };
 
+        const nodeSize = getElementRenderSize(node.el);
         const nodeRect = {
             left: node.x,
             top: node.y,
-            right: node.x + node.el.offsetWidth,
-            bottom: node.y + node.el.offsetHeight
+            right: node.x + nodeSize.w,
+            bottom: node.y + nodeSize.h
         };
         const nodeCenter = {
-            x: node.x + (node.el.offsetWidth / 2),
-            y: node.y + (node.el.offsetHeight / 2)
+            x: node.x + (nodeSize.w / 2),
+            y: node.y + (nodeSize.h / 2)
         };
-        const maxSplitDistance = Math.max(18, Math.min(node.el.offsetWidth, node.el.offsetHeight) * 0.5);
+        const maxSplitDistance = Math.max(18, Math.min(nodeSize.w, nodeSize.h) * 0.5);
 
         let bestMatch = null;
         connections.forEach((connection, index) => {
@@ -1995,78 +1974,157 @@
     }
 
     function drawConnections() {
-        const defs = svgLayer.querySelector('defs').outerHTML; svgLayer.innerHTML = defs;
+        if (connectionsRafId !== null) return;
+        connectionsRafId = requestAnimationFrame(() => {
+            connectionsRafId = null;
+            renderConnectionsNow();
+        });
+    }
+
+    function renderConnectionsNow() {
+        const ns = "http://www.w3.org/2000/svg";
+        while (renderedConnectionGroups.length > connections.length) {
+            const stale = renderedConnectionGroups.pop();
+            if (stale && stale.g && stale.g.parentNode) stale.g.parentNode.removeChild(stale.g);
+        }
         connections.forEach((conn, index) => {
             const metrics = getConnectionRenderMetrics(conn);
-            if (!metrics) return;
-            const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
-            g.setAttribute("class", "connection-group");
-            g.dataset.connectionIndex = String(index);
-            g.addEventListener('pointerdown', (e) => handleConnectionPointerDown(e, index));
-            g.addEventListener('dblclick', (e) => handleConnectionDoubleClick(e, index));
-            const isSel = selectedConnectionIndexes.has(index);
-            const connectionType = normalizeConnectionType(conn.type);
-            const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-            line.setAttribute("x1", metrics.start.x); line.setAttribute("y1", metrics.start.y); line.setAttribute("x2", metrics.end.x); line.setAttribute("y2", metrics.end.y);
-            line.setAttribute("class", `${isSel ? "straight-line selected-line" : "straight-line"}${connectionType === 'dependency' ? " dependency-line" : ""}`);
-            line.setAttribute("marker-end", isSel ? "url(#arrowhead-danger)" : "url(#arrowhead)");
-            const hBox = document.createElementNS("http://www.w3.org/2000/svg", "line");
-            hBox.setAttribute("x1", metrics.start.x); hBox.setAttribute("y1", metrics.start.y); hBox.setAttribute("x2", metrics.end.x); hBox.setAttribute("y2", metrics.end.y);
-            hBox.setAttribute("stroke", "transparent"); hBox.setAttribute("stroke-width", "30");
-            g.appendChild(line); g.appendChild(hBox); svgLayer.appendChild(g);
+            let entry = renderedConnectionGroups[index];
+            if (!metrics) {
+                if (entry) {
+                    if (entry.g && entry.g.parentNode) entry.g.parentNode.removeChild(entry.g);
+                    renderedConnectionGroups[index] = null;
+                }
+                return;
+            }
+            if (!entry) {
+                entry = createConnectionGroup(index);
+                renderedConnectionGroups[index] = entry;
+            }
+            updateConnectionGroup(entry, conn, index, metrics);
+        });
+        syncConnectionLabelEditorPosition();
+        renderConnectPreview();
+    }
 
-            if (conn.label && editingConnectionIndex !== index) {
-                const labelGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
-                labelGroup.setAttribute("class", "connection-label-group");
-                labelGroup.addEventListener('pointerdown', (e) => handleConnectionPointerDown(e, index));
-                labelGroup.addEventListener('dblclick', (e) => handleConnectionDoubleClick(e, index));
+    function createConnectionGroup(index) {
+        const ns = "http://www.w3.org/2000/svg";
+        const g = document.createElementNS(ns, "g");
+        g.setAttribute("class", "connection-group");
+        g.dataset.connectionIndex = String(index);
+        g.addEventListener('pointerdown', (e) => {
+            const idx = Number(e.currentTarget.dataset.connectionIndex);
+            if (Number.isInteger(idx)) handleConnectionPointerDown(e, idx);
+        });
+        g.addEventListener('dblclick', (e) => {
+            const idx = Number(e.currentTarget.dataset.connectionIndex);
+            if (Number.isInteger(idx)) handleConnectionDoubleClick(e, idx);
+        });
+        const line = document.createElementNS(ns, "line");
+        line.setAttribute("class", "straight-line");
+        const hBox = document.createElementNS(ns, "line");
+        hBox.setAttribute("stroke", "transparent");
+        hBox.setAttribute("stroke-width", "30");
+        g.appendChild(line);
+        g.appendChild(hBox);
+        svgLayer.appendChild(g);
+        return { g, line, hBox, labelGroup: null, labelText: null, labelBg: null, lastLabelText: null };
+    }
 
-                const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-                text.setAttribute("class", "connection-label-text");
-                text.setAttribute("x", metrics.labelX.toFixed(2));
-                text.setAttribute("y", metrics.labelY.toFixed(2));
-                text.setAttribute("text-anchor", "middle");
-                text.setAttribute("dominant-baseline", "middle");
-                if (isSel) text.classList.add('selected');
+    function updateConnectionGroup(entry, conn, index, metrics) {
+        const ns = "http://www.w3.org/2000/svg";
+        entry.g.dataset.connectionIndex = String(index);
+        const isSel = selectedConnectionIndexes.has(index);
+        const connectionType = normalizeConnectionType(conn.type);
+        const line = entry.line;
+        line.setAttribute("x1", metrics.start.x);
+        line.setAttribute("y1", metrics.start.y);
+        line.setAttribute("x2", metrics.end.x);
+        line.setAttribute("y2", metrics.end.y);
+        line.setAttribute("class", `${isSel ? "straight-line selected-line" : "straight-line"}${connectionType === 'dependency' ? " dependency-line" : ""}`);
+        line.setAttribute("marker-end", isSel ? "url(#arrowhead-danger)" : "url(#arrowhead)");
+        const hBox = entry.hBox;
+        hBox.setAttribute("x1", metrics.start.x);
+        hBox.setAttribute("y1", metrics.start.y);
+        hBox.setAttribute("x2", metrics.end.x);
+        hBox.setAttribute("y2", metrics.end.y);
+
+        const showLabel = Boolean(conn.label) && editingConnectionIndex !== index;
+        if (showLabel) {
+            if (!entry.labelGroup) {
+                entry.labelGroup = document.createElementNS(ns, "g");
+                entry.labelGroup.setAttribute("class", "connection-label-group");
+                entry.labelGroup.addEventListener('pointerdown', (e) => {
+                    const idx = Number(e.currentTarget.closest('.connection-group').dataset.connectionIndex);
+                    if (Number.isInteger(idx)) handleConnectionPointerDown(e, idx);
+                });
+                entry.labelGroup.addEventListener('dblclick', (e) => {
+                    const idx = Number(e.currentTarget.closest('.connection-group').dataset.connectionIndex);
+                    if (Number.isInteger(idx)) handleConnectionDoubleClick(e, idx);
+                });
+                entry.labelText = document.createElementNS(ns, "text");
+                entry.labelText.setAttribute("class", "connection-label-text");
+                entry.labelText.setAttribute("text-anchor", "middle");
+                entry.labelText.setAttribute("dominant-baseline", "middle");
+                entry.labelBg = document.createElementNS(ns, "rect");
+                entry.labelBg.setAttribute("class", "connection-label-bg");
+                entry.labelBg.setAttribute("rx", "999");
+                entry.labelBg.setAttribute("ry", "999");
+                entry.labelGroup.appendChild(entry.labelBg);
+                entry.labelGroup.appendChild(entry.labelText);
+                entry.g.appendChild(entry.labelGroup);
+            }
+            const text = entry.labelText;
+            text.setAttribute("x", metrics.labelX.toFixed(2));
+            text.setAttribute("y", metrics.labelY.toFixed(2));
+            if (isSel) text.classList.add('selected'); else text.classList.remove('selected');
+            if (entry.lastLabelText !== conn.label) {
                 text.textContent = conn.label;
-                labelGroup.appendChild(text);
-                g.appendChild(labelGroup);
-
+                entry.lastLabelText = conn.label;
                 const bounds = text.getBBox();
-                const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-                bg.setAttribute("class", "connection-label-bg");
-                if (isSel) bg.classList.add('selected');
+                const bg = entry.labelBg;
                 bg.setAttribute("x", (bounds.x - 8).toFixed(2));
                 bg.setAttribute("y", (bounds.y - 5).toFixed(2));
                 bg.setAttribute("width", (bounds.width + 16).toFixed(2));
                 bg.setAttribute("height", (bounds.height + 10).toFixed(2));
-                bg.setAttribute("rx", "999");
-                bg.setAttribute("ry", "999");
-                labelGroup.insertBefore(bg, text);
             }
-        });
+            if (isSel) entry.labelBg.classList.add('selected'); else entry.labelBg.classList.remove('selected');
+        } else if (entry.labelGroup) {
+            if (entry.labelGroup.parentNode) entry.labelGroup.parentNode.removeChild(entry.labelGroup);
+            entry.labelGroup = null;
+            entry.labelText = null;
+            entry.labelBg = null;
+            entry.lastLabelText = null;
+        }
+    }
 
-        syncConnectionLabelEditorPosition();
-
+    function renderConnectPreview() {
         if (connectPreview) {
             const fromNode = getConnectionEndpoint(connectPreview.fromId);
             if (fromNode && fromNode.el.style.display !== 'none') {
                 const targetX = (connectPreview.clientX - panX) / zoom;
                 const targetY = (connectPreview.clientY - panY) / zoom;
-                const sCX = fromNode.x + fromNode.el.offsetWidth / 2;
-                const sCY = fromNode.y + fromNode.el.offsetHeight / 2;
+                const fromSize = getElementRenderSize(fromNode.el);
+                const sCX = fromNode.x + fromSize.w / 2;
+                const sCY = fromNode.y + fromSize.h / 2;
                 const start = getEdgePoint(fromNode, targetX, targetY);
-                const previewLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
-                previewLine.setAttribute("x1", start.x);
-                previewLine.setAttribute("y1", start.y);
-                previewLine.setAttribute("x2", targetX);
-                previewLine.setAttribute("y2", targetY);
-                previewLine.setAttribute("stroke", "var(--primary)");
-                previewLine.setAttribute("stroke-width", "3");
-                previewLine.setAttribute("stroke-dasharray", "10 6");
-                previewLine.setAttribute("marker-end", "url(#arrowhead)");
-                previewLine.setAttribute("opacity", "0.9");
-                svgLayer.appendChild(previewLine);
+                if (!connectPreviewLine) {
+                    connectPreviewLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    connectPreviewLine.setAttribute("stroke", "var(--primary)");
+                    connectPreviewLine.setAttribute("stroke-width", "3");
+                    connectPreviewLine.setAttribute("stroke-dasharray", "10 6");
+                    connectPreviewLine.setAttribute("marker-end", "url(#arrowhead)");
+                    connectPreviewLine.setAttribute("opacity", "0.9");
+                }
+                connectPreviewLine.setAttribute("x1", start.x);
+                connectPreviewLine.setAttribute("y1", start.y);
+                connectPreviewLine.setAttribute("x2", targetX);
+                connectPreviewLine.setAttribute("y2", targetY);
+                svgLayer.appendChild(connectPreviewLine);
+            } else if (connectPreviewLine && connectPreviewLine.parentNode) {
+                connectPreviewLine.parentNode.removeChild(connectPreviewLine);
             }
+        } else if (connectPreviewLine && connectPreviewLine.parentNode) {
+            connectPreviewLine.parentNode.removeChild(connectPreviewLine);
         }
     }
