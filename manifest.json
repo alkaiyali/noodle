@@ -1,6 +1,7 @@
 {
-    "name": "Pro Flowchart Maker",
-    "short_name": "Flowchart",
+    "name": "Noodle — Offline-First Flowchart & Whiteboard",
+    "short_name": "Noodle",
+    "description": "Offline-first flowchart & whiteboard — zero runtime dependencies, PWA.",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#f8fafc",

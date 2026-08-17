@@ -1,6 +1,6 @@
 'use strict';
 
-var CACHE = 'flowchart-v1';
+var CACHE = 'noodle-v1';
 
 var PRECACHE_URLS = [
     '.',
