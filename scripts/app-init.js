@@ -151,13 +151,12 @@ function updateFullscreenUI() {
     if (fullscreenBtn) {
         fullscreenBtn.setAttribute('aria-pressed', String(isFullscreen));
         fullscreenBtn.title = isFullscreen ? 'Exit Fullscreen' : 'Fullscreen';
-        var icon = fullscreenBtn.querySelector('[data-lucide]');
+        var icon = fullscreenBtn.querySelector('#fullscreenIcon');
         if (icon) {
-            icon.setAttribute('data-lucide', isFullscreen ? 'minimize' : 'maximize');
+            icon.innerHTML = isFullscreen
+                ? '<path d="M8 3v3a2 2 0 0 1-2 2H3"></path><path d="M21 8h-3a2 2 0 0 1-2-2V3"></path><path d="M3 16h3a2 2 0 0 1 2 2v3"></path><path d="M16 21v-3a2 2 0 0 1 2-2h3"></path>'
+                : '<path d="M8 3H5a2 2 0 0 0-2 2v3"></path><path d="M21 8V5a2 2 0 0 0-2-2h-3"></path><path d="M3 16v3a2 2 0 0 0 2 2h3"></path><path d="M16 21h3a2 2 0 0 0 2-2v-3"></path>';
         }
-    }
-    if (window.lucide && typeof window.lucide.createIcons === 'function') {
-        window.lucide.createIcons();
     }
 }
 

@@ -358,8 +358,6 @@
             filter: none !important;
         }
         .icon-btn svg { width: 18px; height: 18px; display: block; flex-shrink: 0; }
-        .icon-btn .lucide,
-        .mini-btn .lucide { width: 19px; height: 19px; stroke-width: 2; flex-shrink: 0; }
         .icon-btn svg line,
         .icon-btn svg circle,
         .icon-btn svg rect,
@@ -399,8 +397,7 @@
             -webkit-backdrop-filter: blur(18px) saturate(180%);
             backdrop-filter: blur(18px) saturate(180%);
         }
-        .toolbar-drag-preview svg,
-        .toolbar-drag-preview .lucide {
+        .toolbar-drag-preview svg {
             width: 20px;
             height: 20px;
             flex-shrink: 0;
@@ -485,12 +482,19 @@
             transform: scale(0.97);
             filter: saturate(1);
         }
-        .save-menu-btn .lucide,
+        .save-menu-btn svg,
         .save-menu-btn span {
             position: relative;
             z-index: 1;
         }
-        .save-menu-btn .lucide { width: 18px; height: 18px; stroke-width: 2; }
+        .save-menu-btn svg { width: 18px; height: 18px; }
+        .save-menu-btn svg line,
+        .save-menu-btn svg circle,
+        .save-menu-btn svg rect,
+        .save-menu-btn svg polyline,
+        .save-menu-btn svg path {
+            stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; fill: none;
+        }
         .save-menu-btn span { font-weight: 700; letter-spacing: 0.02em; }
         .save-menu-btn.active,
         .save-menu-btn[aria-expanded="true"] {
@@ -585,7 +589,7 @@
             transform: scale(0.97);
             filter: saturate(1);
         }
-        .layout-btn .lucide,
+        .layout-btn svg,
         .layout-btn span {
             position: relative;
             z-index: 1;
@@ -601,10 +605,16 @@
             line-height: 1;
             opacity: 0.75;
         }
-        .layout-btn .lucide {
+        .layout-btn svg {
             width: 18px;
             height: 18px;
-            stroke-width: 2;
+        }
+        .layout-btn svg line,
+        .layout-btn svg circle,
+        .layout-btn svg rect,
+        .layout-btn svg polyline,
+        .layout-btn svg path {
+            stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; fill: none;
         }
         .layout-btn.active,
         .layout-btn[aria-expanded="true"] {
@@ -1746,7 +1756,10 @@
             display: block;
         }
         .align-menu-btn svg line,
-        .align-menu-btn svg polyline {
+        .align-menu-btn svg circle,
+        .align-menu-btn svg rect,
+        .align-menu-btn svg polyline,
+        .align-menu-btn svg path {
             stroke: currentColor;
             stroke-width: 1.8;
             stroke-linecap: round;

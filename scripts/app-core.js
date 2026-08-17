@@ -194,15 +194,13 @@ var pendingTableEditContext = null;
 
         if (zoomOutBtn) {
             zoomOutBtn.setAttribute('aria-label', 'Zoom Out');
-            zoomOutBtn.innerHTML = '<i data-lucide="zoom-out"></i>';
+            zoomOutBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><line x1="21" x2="16.65" y1="21" y2="16.65"></line><line x1="8" x2="14" y1="11" y2="11"></line></svg>';
         }
 
         if (zoomInBtn) {
             zoomInBtn.setAttribute('aria-label', 'Zoom In');
-            zoomInBtn.innerHTML = '<i data-lucide="zoom-in"></i>';
+            zoomInBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><line x1="21" x2="16.65" y1="21" y2="16.65"></line><line x1="11" x2="11" y1="8" y2="14"></line><line x1="8" x2="14" y1="11" y2="11"></line></svg>';
         }
-
-        window.lucide?.createIcons();
     }
 
     function getDefaultNodeLabel(type) {

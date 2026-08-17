@@ -6,7 +6,6 @@ var PRECACHE_URLS = [
     '.',
     'index.html',
     'styles/app.css',
-    'vendor/lucide-0.469.0.min.js',
     'scripts/app-core.js',
     'scripts/app-ui.js',
     'scripts/app-nodes.js',
