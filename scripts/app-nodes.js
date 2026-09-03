@@ -142,6 +142,7 @@
 
         if (isGroup) {
             node.el.style.backgroundColor = 'transparent';
+            node.el.style.removeProperty('--decision-bg');
             node.el.style.setProperty('--group-border-color', getColorWithAlpha(resolvedBg, 0.62, '#94a3b8'));
             node.el.style.setProperty('--group-overlay-top', getColorWithAlpha(resolvedBg, 0.32, '#eff6ff'));
             node.el.style.setProperty('--group-overlay-mid', getColorWithAlpha(resolvedBg, 0.12, '#dbeafe'));
@@ -149,7 +150,18 @@
             return;
         }
 
+        if (node.type === 'decision') {
+            node.el.style.setProperty('--decision-bg', resolvedBg);
+            node.el.style.backgroundColor = 'transparent';
+            node.el.style.removeProperty('--group-border-color');
+            node.el.style.removeProperty('--group-overlay-top');
+            node.el.style.removeProperty('--group-overlay-mid');
+            node.el.style.removeProperty('--group-overlay-bottom');
+            return;
+        }
+
         node.el.style.backgroundColor = resolvedBg;
+        node.el.style.removeProperty('--decision-bg');
         node.el.style.removeProperty('--group-border-color');
         node.el.style.removeProperty('--group-overlay-top');
         node.el.style.removeProperty('--group-overlay-mid');
@@ -365,7 +377,11 @@
         updateNodeMetadataDisplay(nodes[id]);
         
         nodeEl.addEventListener('pointerdown', handleNodePointerDown);
+        resizeHandle.title = 'Drag to resize manually (double-click to reset)';
         resizeHandle.addEventListener('pointerdown', handleNodeResizePointerDown);
+        resizeHandle.addEventListener('dblclick', (e) => {
+            if (typeof handleNodeResizeDblClick === 'function') handleNodeResizeDblClick(e);
+        });
         
         label.addEventListener('blur', function() {
             if (suspendNodeLabelBlurCommit) return;
@@ -570,4 +586,124 @@ function pruneCollapsedNodeState() {
             } else { btn.style.display = 'none'; }
         });
         updateToolbarColors(); drawConnections();
+    }
+
+    var quickAddContainer = null;
+
+    function ensureQuickAddContainer() {
+        if (quickAddContainer && quickAddContainer.isConnected) return quickAddContainer;
+        quickAddContainer = document.createElement('div');
+        quickAddContainer.id = 'quickAddContainer';
+        quickAddContainer.className = 'quick-add-container';
+        content.appendChild(quickAddContainer);
+        return quickAddContainer;
+    }
+
+    function updateQuickAddHandles() {
+        const container = ensureQuickAddContainer();
+        if (selectedNodes.size !== 1 || (selectedTableIds && selectedTableIds.size > 0)) {
+            container.style.display = 'none';
+            return;
+        }
+
+        const nodeId = Array.from(selectedNodes)[0];
+        const node = nodes[nodeId];
+        if (!node || node.el.style.display === 'none') {
+            container.style.display = 'none';
+            return;
+        }
+
+        const size = getElementRenderSize(node.el);
+        const w = size.w;
+        const h = size.h;
+
+        const btnRight = container.querySelector('.quick-add-right');
+        const btnBottom = container.querySelector('.quick-add-bottom');
+        const btnLeft = container.querySelector('.quick-add-left');
+        const btnTop = container.querySelector('.quick-add-top');
+
+        if (btnRight && btnBottom && btnLeft && btnTop && container.dataset.nodeId === nodeId) {
+            container.style.display = 'block';
+            btnRight.style.left = `${node.x + w + 8}px`;
+            btnRight.style.top = `${node.y + h / 2 - 12}px`;
+            btnBottom.style.left = `${node.x + w / 2 - 12}px`;
+            btnBottom.style.top = `${node.y + h + 8}px`;
+            btnLeft.style.left = `${node.x - 32}px`;
+            btnLeft.style.top = `${node.y + h / 2 - 12}px`;
+            btnTop.style.left = `${node.x + w / 2 - 12}px`;
+            btnTop.style.top = `${node.y - 32}px`;
+            return;
+        }
+
+        container.dataset.nodeId = nodeId;
+        container.style.display = 'block';
+        container.innerHTML = `
+            <button class="quick-add-btn quick-add-right" data-dir="right" title="Add connected node to the right" style="left:${node.x + w + 8}px; top:${node.y + h / 2 - 12}px;">
+                <svg viewBox="0 0 24 24" width="14" height="14"><path d="M5 12h14M12 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <button class="quick-add-btn quick-add-bottom" data-dir="bottom" title="Add connected node below" style="left:${node.x + w / 2 - 12}px; top:${node.y + h + 8}px;">
+                <svg viewBox="0 0 24 24" width="14" height="14"><path d="M12 5v14M5 12l7 7 7-7" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <button class="quick-add-btn quick-add-left" data-dir="left" title="Add connected node to the left" style="left:${node.x - 32}px; top:${node.y + h / 2 - 12}px;">
+                <svg viewBox="0 0 24 24" width="14" height="14"><path d="M19 12H5M12 19l-7-7 7-7" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <button class="quick-add-btn quick-add-top" data-dir="top" title="Add connected node above" style="left:${node.x + w / 2 - 12}px; top:${node.y - 32}px;">
+                <svg viewBox="0 0 24 24" width="14" height="14"><path d="M12 19V5M19 12l-7-7-7 7" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+        `;
+
+        container.querySelectorAll('.quick-add-btn').forEach(btn => {
+            btn.addEventListener('pointerdown', (e) => e.stopPropagation());
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                handleQuickAddClick(nodeId, btn.dataset.dir);
+            });
+        });
+    }
+
+    function handleQuickAddClick(sourceNodeId, direction) {
+        const sourceNode = nodes[sourceNodeId];
+        if (!sourceNode) return;
+
+        const size = getElementRenderSize(sourceNode.el);
+        const snapEnabled = isSnapToGridEnabled ? isSnapToGridEnabled() : false;
+
+        let nextX = sourceNode.x;
+        let nextY = sourceNode.y;
+        const spacingX = Math.max(size.w + 60, 160);
+        const spacingY = Math.max(size.h + 50, 120);
+
+        if (direction === 'right') nextX = sourceNode.x + spacingX;
+        else if (direction === 'bottom') nextY = sourceNode.y + spacingY;
+        else if (direction === 'left') nextX = sourceNode.x - spacingX;
+        else if (direction === 'top') nextY = sourceNode.y - spacingY;
+
+        if (snapEnabled) {
+            nextX = Math.round(nextX / SNAP_GRID_SIZE) * SNAP_GRID_SIZE;
+            nextY = Math.round(nextY / SNAP_GRID_SIZE) * SNAP_GRID_SIZE;
+        }
+
+        let nextType = sourceNode.type === 'start' ? 'process' : (sourceNode.type === 'decision' ? 'process' : sourceNode.type);
+        if (nextType === 'group' || nextType === 'floatingText') nextType = 'process';
+
+        const newNodeId = createNode(nextType, null, nextX, nextY, null, '#ffffff', '#0f172a', false);
+        if (!nodes[newNodeId]) return;
+
+        connections.push(normalizeConnection({
+            from: sourceNodeId,
+            to: newNodeId,
+            type: 'sequence'
+        }));
+
+        clearSelection();
+        selectedNodes.add(newNodeId);
+        nodes[newNodeId].el.classList.add('selected');
+        drawConnections();
+        updateToolbarColors();
+        saveHistoryState();
+
+        const labelEl = nodes[newNodeId].el.querySelector('.label');
+        if (labelEl && typeof startEditingLabel === 'function') {
+            startEditingLabel(labelEl);
+        }
     }

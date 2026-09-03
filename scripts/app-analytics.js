@@ -1,6 +1,6 @@
 // Toolbar color sync and branch analytics rendering.
 
-    var analyticsCardExpanded = false;
+    var analyticsCardCollapsed = false;
 
     function isCompactAnalyticsMode() {
         return window.matchMedia('(max-width: 680px) and (orientation: portrait)').matches;
@@ -9,19 +9,30 @@
     function syncAnalyticsCardLayout() {
         if (!analyticsCard || !analyticsBody || !analyticsToggleBtn) return;
         const isCompact = isCompactAnalyticsMode();
-        const isExpanded = !isCompact || analyticsCardExpanded;
         analyticsCard.classList.toggle('analytics-compact', isCompact);
-        analyticsCard.classList.toggle('analytics-expanded', isExpanded);
-        analyticsToggleBtn.hidden = !isCompact;
-        analyticsToggleBtn.textContent = isExpanded ? 'Hide' : 'Show';
-        analyticsToggleBtn.setAttribute('aria-expanded', String(isExpanded));
+        analyticsCard.classList.toggle('analytics-collapsed', analyticsCardCollapsed);
+        analyticsToggleBtn.setAttribute('aria-expanded', String(!analyticsCardCollapsed));
+        analyticsToggleBtn.title = analyticsCardCollapsed ? 'Expand Analytics' : 'Collapse Analytics';
+    }
+
+    function toggleAnalyticsCard() {
+        analyticsCardCollapsed = !analyticsCardCollapsed;
+        syncAnalyticsCardLayout();
     }
 
     if (analyticsToggleBtn) {
-        analyticsToggleBtn.addEventListener('click', () => {
-            if (!isCompactAnalyticsMode()) return;
-            analyticsCardExpanded = !analyticsCardExpanded;
-            syncAnalyticsCardLayout();
+        analyticsToggleBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleAnalyticsCard();
+        });
+    }
+
+    const analyticsHeaderEl = document.querySelector('.analytics-header');
+    if (analyticsHeaderEl) {
+        analyticsHeaderEl.addEventListener('click', (e) => {
+            if (analyticsCardCollapsed || e.target.closest('.analytics-toggle-btn')) {
+                toggleAnalyticsCard();
+            }
         });
     }
 
@@ -57,6 +68,18 @@
             if (activeText) activeText.classList.add('active');
             syncCustomColorSwatch('bgColor', sharedBgColor);
             syncCustomColorSwatch('textColor', sharedTextColor);
+
+            const hasNodeSelected = selectedNodes.size > 0;
+            document.querySelectorAll('.node-size-section').forEach(el => {
+                el.style.display = hasNodeSelected ? '' : 'none';
+            });
+            if (hasNodeSelected) {
+                const autoBtn = document.querySelector('.node-auto-size-btn');
+                if (autoBtn) {
+                    const isAllAuto = Array.from(selectedNodes).every(id => !nodes[id]?.width && !nodes[id]?.height);
+                    autoBtn.classList.toggle('active', isAllAuto);
+                }
+            }
         } else { colorTools.classList.remove('visible'); }
 
         const selectedConnections = getSelectedConnections();
@@ -67,13 +90,20 @@
             document.querySelectorAll('.connection-type-btn').forEach(btn => {
                 btn.classList.toggle('active', hasSharedConnectionType && btn.dataset.connectionType === sharedConnectionType);
             });
+            const sharedConnectionStyle = selectedConnections[0].connection.style || 'straight';
+            const hasSharedConnectionStyle = selectedConnections.every(entry => (entry.connection.style || 'straight') === sharedConnectionStyle);
+            document.querySelectorAll('.connection-style-btn').forEach(btn => {
+                btn.classList.toggle('active', hasSharedConnectionStyle && btn.dataset.connectionStyle === sharedConnectionStyle);
+            });
         } else {
             connectionTools.classList.remove('visible');
             document.querySelectorAll('.connection-type-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.connection-style-btn').forEach(btn => btn.classList.remove('active'));
         }
         updateTableToolsVisibility();
         updateAnalyticsCard();
         updateSelectionCount();
+        if (typeof updateQuickAddHandles === 'function') updateQuickAddHandles();
     }
 
     function syncCustomColorSwatch(target, sharedColor) {
@@ -265,9 +295,9 @@
         analyticsTitle.textContent = label;
         analyticsGrid.style.display = 'grid';
         analyticsGrid.innerHTML = [
-            renderAnalyticsStat('Total Children (Width)', stats.totalChildren),
+            renderAnalyticsStat('Total Children', stats.totalChildren),
             renderAnalyticsStat('Direct Children', stats.directChildren),
-            renderAnalyticsStat('Deepest Branch (Depth)', stats.deepestBranch),
+            renderAnalyticsStat('Branch Depth', stats.deepestBranch),
             renderAnalyticsStat('Child Number Sum', formatMetricValue(stats.numericSum), true)
         ].join('');
         analyticsEmpty.textContent = '';

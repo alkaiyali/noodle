@@ -28,9 +28,77 @@ var APP_ACTIONS = {
     'insert-rich-image': () => requestRichImageInsert(),
     'apply-color': (actionEl) => applyColor(actionEl.dataset.colorTarget, actionEl.dataset.colorValue),
     'set-connection-type': (actionEl) => setSelectedConnectionType(actionEl.dataset.connectionType),
+    'set-connection-style': (actionEl) => setSelectedConnectionStyle(actionEl.dataset.connectionStyle),
+    'reset-node-size': () => {
+        hideContextMenu();
+        const targetIds = selectedNodes.size > 0 ? Array.from(selectedNodes) : (contextMenuNodeId ? [contextMenuNodeId] : []);
+        if (!targetIds.length) return;
+        targetIds.forEach(id => {
+            const node = nodes[id];
+            if (!node) return;
+            if (node.type === 'group') {
+                setNodeSize(node, GROUP_NODE_DEFAULT_SIZE.width, GROUP_NODE_DEFAULT_SIZE.height, { autosave: false });
+            } else {
+                setNodeSize(node, null, null, { autosave: false });
+            }
+        });
+        saveHistoryState();
+        updateToolbarColors();
+        showToast(`Reset ${targetIds.length === 1 ? 'node' : targetIds.length + ' nodes'} to auto size`, 'info', 1500);
+    },
+    'prompt-node-size': async () => {
+        hideContextMenu();
+        const targetIds = Array.from(selectedNodes);
+        if (!targetIds.length) return;
+        const firstNode = nodes[targetIds[0]];
+        if (!firstNode) return;
+        const currentW = firstNode.width || firstNode.el.offsetWidth;
+        const currentH = firstNode.height || firstNode.el.offsetHeight;
+        const val = await showModalPrompt({
+            title: 'Resize Node',
+            defaultValue: `${currentW}x${currentH}`,
+            placeholder: 'e.g. 240x120 or auto',
+            confirmLabel: 'Apply'
+        });
+        if (!val) return;
+        const trimmed = val.trim().toLowerCase();
+        if (trimmed === 'auto') {
+            targetIds.forEach(id => {
+                const node = nodes[id];
+                if (node?.type === 'group') setNodeSize(node, GROUP_NODE_DEFAULT_SIZE.width, GROUP_NODE_DEFAULT_SIZE.height, { autosave: false });
+                else if (node) setNodeSize(node, null, null, { autosave: false });
+            });
+            saveHistoryState();
+            updateToolbarColors();
+            showToast('Reset node size to auto', 'info', 1500);
+            return;
+        }
+        const match = trimmed.match(/^(\d+)\s*(?:x|X|,|\s)\s*(\d+)$/);
+        if (!match) {
+            showToast('Invalid format. Enter e.g. 240x120 or auto', 'error', 2500);
+            return;
+        }
+        const parsedW = parseInt(match[1], 10);
+        const parsedH = parseInt(match[2], 10);
+        targetIds.forEach(id => {
+            setNodeSize(id, parsedW, parsedH, { autosave: false });
+        });
+        saveHistoryState();
+        updateToolbarColors();
+        showToast(`Resized ${targetIds.length === 1 ? 'node' : targetIds.length + ' nodes'} to ${parsedW}×${parsedH}`, 'success', 1500);
+    },
+    'toggle-theme': () => toggleTheme(),
+    'open-diagrams-modal': () => {
+        hideSaveMenu();
+        if (typeof openDiagramsModal === 'function') openDiagramsModal();
+    },
     'toggle-save-menu': () => toggleSaveMenu(),
+    'copy-share-link': () => copyShareLinkToClipboard(),
     'copy-json': () => copyJSONToClipboard(),
     'paste-json': () => pasteJSONFromClipboard(),
+    'copy-mermaid': () => copyMermaidToClipboard(),
+    'paste-mermaid': () => pasteMermaidFromClipboard(),
+    'export-mermaid': () => exportMermaidFile(),
     'open-json-file-picker': () => openJSONFilePicker(),
     'export-json': () => exportJSON(),
     'export-svg': () => exportSVG(),
@@ -118,11 +186,27 @@ bindAppActions();
 initializeToolbarButtons();
 bindCustomColorInputs();
 setSnapToGridEnabled(isSnapToGridEnabled());
+if (typeof getSavedTheme === 'function' && typeof applyTheme === 'function') {
+    applyTheme(getSavedTheme());
+}
+if (typeof initDocumentStorage === 'function') {
+    initDocumentStorage().catch(() => {});
+}
 
-const restoredFromAutosave = loadAutosavedGraph();
-if (restoredFromAutosave) {
-    showToast('Restored your last session from autosave.', 'success', 5000);
-} else {
+async function bootInitialGraphContent() {
+    // Shared links win over local content; with no share token in the URL the
+    // default localStorage autosave loads as before.
+    try {
+        if (typeof getShareEncodedFromUrl === 'function' && getShareEncodedFromUrl()
+            && typeof loadSharedGraphFromUrl === 'function') {
+            if (await loadSharedGraphFromUrl()) return true;
+        }
+    } catch (err) {}
+    const restoredFromAutosave = loadAutosavedGraph();
+    if (restoredFromAutosave) {
+        showToast('Restored your last session from autosave.', 'success', 5000);
+        return true;
+    }
     createDefaultStarterGraph();
     try {
         if (!window.localStorage?.getItem('graph-seen-intro')) {
@@ -132,7 +216,10 @@ if (restoredFromAutosave) {
             }, 500);
         }
     } catch (err) {}
+    return false;
 }
+
+bootInitialGraphContent();
 
 function toggleFullscreen() {
     var isFullscreen = Boolean(document.fullscreenElement);

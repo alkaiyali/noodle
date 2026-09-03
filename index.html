@@ -15,6 +15,15 @@
 <body>
 
 <div id="app">
+    <div id="docHeader" class="doc-header">
+        <button id="docMenuBtn" class="doc-menu-btn" data-action="open-diagrams-modal" title="Manage diagrams">
+            <span class="doc-app-name">🍜 Noodle</span>
+            <span class="doc-separator">/</span>
+            <span id="docTitleLabel" class="doc-title-label">My Diagram</span>
+            <span class="toolbar-caret" aria-hidden="true">▾</span>
+        </button>
+    </div>
+
     <div id="canvas-viewport">
         <div id="bg-grid"></div>
         <div id="canvas-content">
@@ -36,6 +45,15 @@
                 <div class="tool-group connection-type-group">
                     <button class="mini-btn connection-type-btn" data-action="set-connection-type" data-connection-type="sequence" type="button">Next</button>
                     <button class="mini-btn connection-type-btn" data-action="set-connection-type" data-connection-type="dependency" type="button">Part of</button>
+                </div>
+            </div>
+            <div class="divider"></div>
+            <div class="toolbar-section toolbar-section-compact">
+                <span class="tool-label">Route</span>
+                <div class="tool-group connection-style-group">
+                    <button class="mini-btn connection-style-btn" data-action="set-connection-style" data-connection-style="straight" type="button">Straight</button>
+                    <button class="mini-btn connection-style-btn" data-action="set-connection-style" data-connection-style="curved" type="button">Curved</button>
+                    <button class="mini-btn connection-style-btn" data-action="set-connection-style" data-connection-style="orthogonal" type="button">Elbow</button>
                 </div>
             </div>
         </div>
@@ -68,6 +86,15 @@
                     <label class="swatch swatch-custom" title="Custom text color" aria-label="Custom text color">
                         <input type="color" id="customTextColorInput" value="#0f172a">
                     </label>
+                </div>
+            </div>
+
+            <div class="divider node-size-section"></div>
+            <div class="toolbar-section toolbar-section-compact node-size-section">
+                <span class="tool-label">Size</span>
+                <div class="tool-group">
+                    <button class="mini-btn node-custom-size-btn" data-action="prompt-node-size" title="Set exact width & height (e.g. 240x120)" type="button">Resize...</button>
+                    <button class="mini-btn node-auto-size-btn" data-action="reset-node-size" title="Reset node to auto-fit size" type="button">Auto</button>
                 </div>
             </div>
         </div>
@@ -219,6 +246,19 @@
                         <rect x="6" y="14" width="12" height="8" rx="1"></rect>
                     </svg>
                 </button>
+                <button id="themeToggleBtn" class="icon-btn" data-action="toggle-theme" title="Toggle Theme" aria-label="Toggle Theme">
+                    <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="4"></circle>
+                        <path d="M12 2v2"></path>
+                        <path d="M12 20v2"></path>
+                        <path d="m4.93 4.93 1.41 1.41"></path>
+                        <path d="m17.66 17.66 1.41 1.41"></path>
+                        <path d="M2 12h2"></path>
+                        <path d="M20 12h2"></path>
+                        <path d="m6.34 17.66-1.41 1.41"></path>
+                        <path d="m19.07 4.93-1.41 1.41"></path>
+                    </svg>
+                </button>
             </div>
 
             <div class="toolbar-section toolbar-section-wide" title="Align, distribute, and compress selected nodes">
@@ -263,9 +303,17 @@
     </div>
 
     <div id="saveMenuPanel" class="menu-panel">
+        <div class="menu-item" data-action="open-diagrams-modal">My Diagrams <span class="menu-shortcut">Docs</span></div>
+        <div class="menu-separator"></div>
+        <div class="menu-item" data-action="copy-share-link">Copy Share Link <span class="menu-shortcut">URL</span></div>
+        <div class="menu-separator"></div>
         <div class="menu-item" data-action="copy-json">Copy JSON <span class="menu-shortcut">Clipboard</span></div>
         <div class="menu-item" data-action="paste-json">Paste JSON <span class="menu-shortcut">Clipboard</span></div>
         <div class="menu-item" data-action="open-json-file-picker">Load JSON <span class="menu-shortcut">File</span></div>
+        <div class="menu-separator"></div>
+        <div class="menu-item" data-action="copy-mermaid">Copy Mermaid <span class="menu-shortcut">Clipboard</span></div>
+        <div class="menu-item" data-action="paste-mermaid">Paste Mermaid <span class="menu-shortcut">Import</span></div>
+        <div class="menu-item" data-action="export-mermaid">Export Mermaid <span class="menu-shortcut">.mmd</span></div>
         <div class="menu-separator"></div>
         <div class="menu-item" data-action="export-json">Save JSON <span class="menu-shortcut">File</span></div>
         <div class="menu-item" data-action="export-svg">Export SVG <span class="menu-shortcut">File</span></div>
@@ -363,8 +411,19 @@
 
     <div id="analytics-card">
         <div class="analytics-header">
-            <div class="analytics-heading">Branch Analytics</div>
-            <button id="analytics-toggle-btn" class="analytics-toggle-btn" type="button" aria-expanded="true" hidden>Hide</button>
+            <div class="analytics-heading">
+                <svg class="analytics-heading-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <line x1="18" y1="20" x2="18" y2="10"></line>
+                    <line x1="12" y1="20" x2="12" y2="4"></line>
+                    <line x1="6" y1="20" x2="6" y2="14"></line>
+                </svg>
+                <span>Branch Analytics</span>
+            </div>
+            <button id="analytics-toggle-btn" class="analytics-toggle-btn" type="button" aria-label="Toggle Analytics" title="Toggle Analytics">
+                <svg class="analytics-toggle-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <polyline points="18 15 12 9 6 15"></polyline>
+                </svg>
+            </button>
         </div>
         <div id="analytics-body" class="analytics-body">
             <div id="analytics-title" class="analytics-title">No node selected</div>
@@ -427,6 +486,7 @@
         <div class="menu-item node-context-item hidden" data-action="trigger-collapse-action" data-collapse-direction="expand" data-collapse-type="dependency">Expand Children (Part of)</div>
         <div class="menu-item node-context-item hidden" data-action="trigger-collapse-action" data-collapse-direction="expand" data-collapse-type="sequence">Expand Children (Sequence)</div>
         <div class="menu-item node-context-item hidden" data-action="trigger-collapse-action" data-collapse-direction="expand" data-collapse-type="all">Expand All</div>
+        <div class="menu-item node-context-item node-resize-reset-item hidden" data-action="reset-node-size">Reset to Auto Size</div>
         <div class="menu-separator"></div>
         <div class="menu-item danger" data-action="trigger-selection-action" data-selection-action="delete">Delete <span class="menu-shortcut">Del</span></div>
     </div>
@@ -434,6 +494,7 @@
 
 <script src="./scripts/app-core.js"></script>
 <script src="./scripts/app-ui.js"></script>
+<script src="./scripts/app-storage.js"></script>
 <script src="./scripts/app-nodes.js"></script>
 <script src="./scripts/app-tables.js"></script>
 <script src="./scripts/app-tables-clipboard.js"></script>
@@ -444,6 +505,7 @@
 <script src="./scripts/app-analytics.js"></script>
 <script src="./scripts/app-interactions.js"></script>
 <script src="./scripts/app-io.js"></script>
+<script src="./scripts/app-share.js"></script>
 <script src="./scripts/app-init.js"></script>
 </body>
 </html>

@@ -479,6 +479,22 @@
         handleEl.setPointerCapture?.(e.pointerId);
     }
 
+    function handleNodeResizeDblClick(e) {
+        e.stopPropagation();
+        const handleEl = e.currentTarget;
+        const nodeEl = handleEl instanceof HTMLElement ? handleEl.closest('.node') : null;
+        const nodeId = nodeEl?.id || '';
+        const node = nodes[nodeId];
+        if (!node || !isResizableNodeType(node.type)) return;
+        if (node.type === 'group') {
+            setNodeSize(node, GROUP_NODE_DEFAULT_SIZE.width, GROUP_NODE_DEFAULT_SIZE.height, { recordHistory: true });
+            showToast('Reset group to default size', 'info', 1500);
+        } else {
+            setNodeSize(node, null, null, { recordHistory: true });
+            showToast('Reset node to auto size', 'info', 1500);
+        }
+    }
+
     function isTemporaryConnectShortcut(e) {
         return !isConnectMode && e.altKey;
     }
@@ -521,6 +537,31 @@
         return true;
     }
 
+    var defaultConnectorStyle = 'straight';
+
+    function setSelectedConnectionStyle(style) {
+        const normalized = ['curved', 'orthogonal'].includes(style) ? style : 'straight';
+        if (selectedConnectionIndexes.size === 0) {
+            defaultConnectorStyle = normalized;
+            showToast(`Connector style: ${normalized}`, 'info', 1500);
+            return;
+        }
+        let changed = false;
+        selectedConnectionIndexes.forEach(idx => {
+            const conn = connections[idx];
+            if (conn && conn.style !== normalized) {
+                conn.style = normalized;
+                changed = true;
+            }
+        });
+        if (changed) {
+            drawConnections();
+            updateToolbarColors();
+            saveHistoryState();
+            showToast(`Connection route: ${normalized}`, 'info', 1500);
+        }
+    }
+
     function getConnectionRenderMetrics(connectionOrIndex) {
         const connection = typeof connectionOrIndex === 'number' ? connections[connectionOrIndex] : connectionOrIndex;
         if (!connection) return null;
@@ -536,11 +577,38 @@
         const start = getEdgePoint(nFrom, eCX, eCY);
         const end = getEdgePoint(nTo, sCX, sCY);
 
+        const routeStyle = connection.style || defaultConnectorStyle || 'straight';
+        let pathData;
+        let labelX = (start.x + end.x) / 2;
+        let labelY = ((start.y + end.y) / 2) - 12;
+
+        if (routeStyle === 'curved') {
+            const dx = end.x - start.x;
+            const dy = end.y - start.y;
+            const cx1 = start.x + dx * 0.5;
+            const cy1 = start.y;
+            const cx2 = start.x + dx * 0.5;
+            const cy2 = end.y;
+            pathData = `M ${start.x.toFixed(1)} ${start.y.toFixed(1)} C ${cx1.toFixed(1)} ${cy1.toFixed(1)}, ${cx2.toFixed(1)} ${cy2.toFixed(1)}, ${end.x.toFixed(1)} ${end.y.toFixed(1)}`;
+            labelX = (start.x + cx1 * 3 + cx2 * 3 + end.x) / 8;
+            labelY = (start.y + cy1 * 3 + cy2 * 3 + end.y) / 8 - 12;
+        } else if (routeStyle === 'orthogonal') {
+            const dx = end.x - start.x;
+            const midX = start.x + dx / 2;
+            pathData = `M ${start.x.toFixed(1)} ${start.y.toFixed(1)} L ${midX.toFixed(1)} ${start.y.toFixed(1)} L ${midX.toFixed(1)} ${end.y.toFixed(1)} L ${end.x.toFixed(1)} ${end.y.toFixed(1)}`;
+            labelX = midX;
+            labelY = ((start.y + end.y) / 2) - 12;
+        } else {
+            pathData = `M ${start.x.toFixed(1)} ${start.y.toFixed(1)} L ${end.x.toFixed(1)} ${end.y.toFixed(1)}`;
+        }
+
         return {
             start,
             end,
-            labelX: (start.x + end.x) / 2,
-            labelY: ((start.y + end.y) / 2) - 12
+            pathData,
+            routeStyle,
+            labelX,
+            labelY
         };
     }
 
@@ -793,6 +861,13 @@
             }
             item.classList.toggle('disabled', !canApplyTableAction(item.dataset.tableAction));
         });
+
+        const targetNode = hasNodeContext ? nodes[nodeId] : null;
+        const hasCustomSize = Boolean(targetNode && (targetNode.width || targetNode.height));
+        const resetSizeItem = contextMenu.querySelector('.node-resize-reset-item');
+        if (resetSizeItem) {
+            resetSizeItem.classList.toggle('hidden', !hasNodeContext || !hasCustomSize);
+        }
     }
 
     function triggerContextNodeCollapse(collapseDirection, collapseType) {
@@ -1013,7 +1088,10 @@
             setTablePosition(table, table.x + dx, table.y + dy);
         });
 
-        if (movedNode) drawConnections();
+        if (movedNode) {
+            drawConnections();
+            if (typeof updateQuickAddHandles === 'function') updateQuickAddHandles();
+        }
     }
 
     viewport.addEventListener('pointerdown', (e) => {
@@ -1176,8 +1254,20 @@
             lastPoint = { x: e.clientX, y: e.clientY };
         } else if (currentMode === 'RESIZE_NODE' && activeNodeResize?.pointerId === e.pointerId) {
             clearDeleteDropZoneState();
-            const nextWidth = activeNodeResize.startWidth + ((e.clientX - activeNodeResize.startClientX) / zoom);
-            const nextHeight = activeNodeResize.startHeight + ((e.clientY - activeNodeResize.startClientY) / zoom);
+            let nextWidth = activeNodeResize.startWidth + ((e.clientX - activeNodeResize.startClientX) / zoom);
+            let nextHeight = activeNodeResize.startHeight + ((e.clientY - activeNodeResize.startClientY) / zoom);
+
+            const snapEnabled = typeof isSnapToGridEnabled === 'function' ? isSnapToGridEnabled() : false;
+            if (snapEnabled) {
+                nextWidth = Math.round(nextWidth / SNAP_GRID_SIZE) * SNAP_GRID_SIZE;
+                nextHeight = Math.round(nextHeight / SNAP_GRID_SIZE) * SNAP_GRID_SIZE;
+            }
+
+            if (e.shiftKey && activeNodeResize.startWidth > 0 && activeNodeResize.startHeight > 0) {
+                const aspect = activeNodeResize.startWidth / activeNodeResize.startHeight;
+                nextHeight = nextWidth / aspect;
+            }
+
             const didResize = setNodeSize(activeNodeResize.nodeId, nextWidth, nextHeight, { autosave: false });
             if (didResize) {
                 activeNodeResize.didResize = true;
@@ -1250,6 +1340,7 @@
                 const didSplitConnection = draggedNodeId && !droppedOnNodeId ? splitConnectionAtDroppedNode(draggedNodeId) : false;
                 if (!didSplitConnection || droppedOnNodeId) saveHistoryState();
             }
+            if (typeof updateQuickAddHandles === 'function') updateQuickAddHandles();
         }
         if (completedMode === 'RESIZE_NODE' && activeNodeResize?.pointerId === e.pointerId) {
             if (activeNodeResize.didResize) {
@@ -1258,6 +1349,7 @@
             }
             activeNodeResize = null;
             isDragging = false;
+            if (typeof updateQuickAddHandles === 'function') updateQuickAddHandles();
         }
         if (completedMode === 'DRAG_TABLE' && !isDragging && pendingTableEditContext && selectedNodes.size === 0 && selectedConnectionIndexes.size === 0 && selectedTableIds.size === 1 && selectedTableIds.has(pendingTableEditContext.tableId)) {
             const focusCell = getTableCellByContext(pendingTableEditContext.tableId, pendingTableEditContext);
@@ -1610,6 +1702,7 @@
         }
         if (isDuplicateShortcut) { e.preventDefault(); triggerAction('duplicate'); }
         if (isCmd && key === 'a') { e.preventDefault(); selectAllCanvasItems(); }
+        if (isCmd && key === 'f') { e.preventDefault(); openCanvasSearch(); return; }
         if (isCmd && key === 's') { e.preventDefault(); exportJSON(); return; }
         if (e.key === 'Escape') {
             hideContextMenu();
@@ -1622,7 +1715,10 @@
             const hasSelection = selectedNodes.size > 0 || selectedTableIds.size > 0;
             if (hasSelection) {
                 e.preventDefault();
-                var step = e.shiftKey ? 10 : 1;
+                var snapEnabled = isSnapToGridEnabled ? isSnapToGridEnabled() : false;
+                var step = snapEnabled
+                    ? (e.shiftKey ? SNAP_GRID_SIZE * 3 : SNAP_GRID_SIZE)
+                    : (e.shiftKey ? 10 : 1);
                 var dx = 0, dy = 0;
                 if (key === 'arrowleft') dx = -step;
                 if (key === 'arrowright') dx = step;
@@ -1641,16 +1737,16 @@
                     nudgeHistoryClearTimer = null;
                 }, 500);
 
-                var snapEnabled = isSnapToGridEnabled ? isSnapToGridEnabled() : false;
-
                 selectedNodes.forEach(function (id) {
                     var node = nodes[id];
                     if (!node) return;
                     var newX = node.x + dx;
                     var newY = node.y + dy;
                     if (snapEnabled) {
-                        newX = Math.round(newX / SNAP_GRID_SIZE) * SNAP_GRID_SIZE;
-                        newY = Math.round(newY / SNAP_GRID_SIZE) * SNAP_GRID_SIZE;
+                        if (dx > 0) newX = (Math.floor(node.x / SNAP_GRID_SIZE) * SNAP_GRID_SIZE) + step;
+                        else if (dx < 0) newX = (Math.ceil(node.x / SNAP_GRID_SIZE) * SNAP_GRID_SIZE) - step;
+                        if (dy > 0) newY = (Math.floor(node.y / SNAP_GRID_SIZE) * SNAP_GRID_SIZE) + step;
+                        else if (dy < 0) newY = (Math.ceil(node.y / SNAP_GRID_SIZE) * SNAP_GRID_SIZE) - step;
                     }
                     setNodePosition(node, newX, newY);
                 });
@@ -1660,12 +1756,15 @@
                     var newX = table.x + dx;
                     var newY = table.y + dy;
                     if (snapEnabled) {
-                        newX = Math.round(newX / SNAP_GRID_SIZE) * SNAP_GRID_SIZE;
-                        newY = Math.round(newY / SNAP_GRID_SIZE) * SNAP_GRID_SIZE;
+                        if (dx > 0) newX = (Math.floor(table.x / SNAP_GRID_SIZE) * SNAP_GRID_SIZE) + step;
+                        else if (dx < 0) newX = (Math.ceil(table.x / SNAP_GRID_SIZE) * SNAP_GRID_SIZE) - step;
+                        if (dy > 0) newY = (Math.floor(table.y / SNAP_GRID_SIZE) * SNAP_GRID_SIZE) + step;
+                        else if (dy < 0) newY = (Math.ceil(table.y / SNAP_GRID_SIZE) * SNAP_GRID_SIZE) - step;
                     }
                     setTablePosition(table, newX, newY);
                 });
                 drawConnections();
+                if (typeof updateQuickAddHandles === 'function') updateQuickAddHandles();
                 scheduleAutosave();
             }
         }
@@ -1685,12 +1784,64 @@
         if (editingTableId !== null) return;
         const keyTarget = e.target instanceof HTMLElement ? e.target : null;
         if (keyTarget?.matches('input, textarea, select') || keyTarget?.isContentEditable) return;
+
+        // 1. Handle image paste from clipboard directly onto canvas
+        const items = e.clipboardData?.items;
+        if (items) {
+            for (let i = 0; i < items.length; i++) {
+                if (items[i].type && items[i].type.startsWith('image/')) {
+                    const file = items[i].getAsFile();
+                    if (file) {
+                        e.preventDefault();
+                        const reader = new FileReader();
+                        reader.onload = (ev) => {
+                            const dataUrl = ev.target.result;
+                            const posX = Math.round((viewport.clientWidth / 2 - panX) / zoom - 100);
+                            const posY = Math.round((viewport.clientHeight / 2 - panY) / zoom - 75);
+                            const nodeId = createNode('process', null, posX, posY, '', '#ffffff', '#0f172a', false);
+                            if (nodes[nodeId]) {
+                                const labelEl = nodes[nodeId].el.querySelector('.label');
+                                if (labelEl) {
+                                    labelEl.innerHTML = `<img src="${dataUrl}" style="max-width:280px;max-height:200px;border-radius:6px;display:block;margin:0 auto;" alt="Pasted Image">`;
+                                    commitNodeLabel(labelEl, { autosave: false, recordHistory: false });
+                                }
+                                clearSelection();
+                                selectedNodes.add(nodeId);
+                                nodes[nodeId].el.classList.add('selected');
+                                invalidateCachedElementSizes();
+                                drawConnections();
+                                saveHistoryState();
+                                showToast('Pasted image onto canvas', 'success', 2500);
+                            }
+                        };
+                        reader.readAsDataURL(file);
+                        return;
+                    }
+                }
+            }
+        }
+
         const context = getActiveTablePasteContext();
-        if (!context) return;
-        const clipboardText = e.clipboardData?.getData('text/plain') || '';
-        if (!clipboardText) return;
-        e.preventDefault();
-        applyDetectedTableClipboardText(context.tableId, context, clipboardText, { recordHistory: true });
+        if (context) {
+            const clipboardText = e.clipboardData?.getData('text/plain') || '';
+            if (!clipboardText) return;
+            e.preventDefault();
+            applyDetectedTableClipboardText(context.tableId, context, clipboardText, { recordHistory: true });
+            return;
+        }
+
+        // 2. Handle pasted JSON graph payload
+        const clipboardText = (e.clipboardData?.getData('text/plain') || '').trim();
+        if (clipboardText.startsWith('{') && clipboardText.endsWith('}')) {
+            try {
+                const parsed = JSON.parse(clipboardText);
+                if (parsed.nodes || parsed.connections || parsed.tables) {
+                    e.preventDefault();
+                    restoreGraphPayload(parsed);
+                    showToast('Imported diagram from clipboard JSON', 'success', 3000);
+                }
+            } catch (err) {}
+        }
     });
 
     function triggerAction(action) {
@@ -2020,15 +2171,18 @@
             const idx = Number(e.currentTarget.dataset.connectionIndex);
             if (Number.isInteger(idx)) handleConnectionDoubleClick(e, idx);
         });
-        const line = document.createElementNS(ns, "line");
+        const line = document.createElementNS(ns, "path");
         line.setAttribute("class", "straight-line");
-        const hBox = document.createElementNS(ns, "line");
+        line.setAttribute("fill", "none");
+        const hBox = document.createElementNS(ns, "path");
+        hBox.setAttribute("class", "hit-line");
+        hBox.setAttribute("fill", "none");
         hBox.setAttribute("stroke", "transparent");
         hBox.setAttribute("stroke-width", "30");
         g.appendChild(line);
         g.appendChild(hBox);
         svgLayer.appendChild(g);
-        return { g, line, hBox, labelGroup: null, labelText: null, labelBg: null, lastLabelText: null };
+        return { g, line, hBox, labelGroup: null, labelText: null, lastLabelText: null };
     }
 
     function updateConnectionGroup(entry, conn, index, metrics) {
@@ -2036,18 +2190,13 @@
         entry.g.dataset.connectionIndex = String(index);
         const isSel = selectedConnectionIndexes.has(index);
         const connectionType = normalizeConnectionType(conn.type);
+        const pathData = metrics.pathData || `M ${metrics.start.x} ${metrics.start.y} L ${metrics.end.x} ${metrics.end.y}`;
         const line = entry.line;
-        line.setAttribute("x1", metrics.start.x);
-        line.setAttribute("y1", metrics.start.y);
-        line.setAttribute("x2", metrics.end.x);
-        line.setAttribute("y2", metrics.end.y);
+        line.setAttribute("d", pathData);
         line.setAttribute("class", `${isSel ? "straight-line selected-line" : "straight-line"}${connectionType === 'dependency' ? " dependency-line" : ""}`);
         line.setAttribute("marker-end", isSel ? "url(#arrowhead-danger)" : "url(#arrowhead)");
         const hBox = entry.hBox;
-        hBox.setAttribute("x1", metrics.start.x);
-        hBox.setAttribute("y1", metrics.start.y);
-        hBox.setAttribute("x2", metrics.end.x);
-        hBox.setAttribute("y2", metrics.end.y);
+        hBox.setAttribute("d", pathData);
 
         const showLabel = Boolean(conn.label) && editingConnectionIndex !== index;
         if (showLabel) {
@@ -2066,11 +2215,6 @@
                 entry.labelText.setAttribute("class", "connection-label-text");
                 entry.labelText.setAttribute("text-anchor", "middle");
                 entry.labelText.setAttribute("dominant-baseline", "middle");
-                entry.labelBg = document.createElementNS(ns, "rect");
-                entry.labelBg.setAttribute("class", "connection-label-bg");
-                entry.labelBg.setAttribute("rx", "999");
-                entry.labelBg.setAttribute("ry", "999");
-                entry.labelGroup.appendChild(entry.labelBg);
                 entry.labelGroup.appendChild(entry.labelText);
                 entry.g.appendChild(entry.labelGroup);
             }
@@ -2081,19 +2225,11 @@
             if (entry.lastLabelText !== conn.label) {
                 text.textContent = conn.label;
                 entry.lastLabelText = conn.label;
-                const bounds = text.getBBox();
-                const bg = entry.labelBg;
-                bg.setAttribute("x", (bounds.x - 8).toFixed(2));
-                bg.setAttribute("y", (bounds.y - 5).toFixed(2));
-                bg.setAttribute("width", (bounds.width + 16).toFixed(2));
-                bg.setAttribute("height", (bounds.height + 10).toFixed(2));
             }
-            if (isSel) entry.labelBg.classList.add('selected'); else entry.labelBg.classList.remove('selected');
         } else if (entry.labelGroup) {
             if (entry.labelGroup.parentNode) entry.labelGroup.parentNode.removeChild(entry.labelGroup);
             entry.labelGroup = null;
             entry.labelText = null;
-            entry.labelBg = null;
             entry.lastLabelText = null;
         }
     }
@@ -2128,3 +2264,160 @@
             connectPreviewLine.parentNode.removeChild(connectPreviewLine);
         }
     }
+
+    var canvasSearchEl = null;
+    var canvasSearchMatches = [];
+    var currentMatchIndex = -1;
+
+    function openCanvasSearch() {
+        if (canvasSearchEl && canvasSearchEl.isConnected) {
+            const input = canvasSearchEl.querySelector('.canvas-search-input');
+            input?.focus();
+            input?.select();
+            return;
+        }
+
+        canvasSearchEl = document.createElement('div');
+        canvasSearchEl.id = 'canvasSearch';
+        canvasSearchEl.className = 'canvas-search-bar';
+        canvasSearchEl.innerHTML = `
+            <svg class="search-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            <input type="text" class="canvas-search-input" placeholder="Find in diagram..." aria-label="Find in diagram">
+            <span class="canvas-search-count">0/0</span>
+            <button type="button" class="search-nav-btn prev-match-btn" title="Previous match (Shift+Enter)">↑</button>
+            <button type="button" class="search-nav-btn next-match-btn" title="Next match (Enter)">↓</button>
+            <button type="button" class="search-close-btn" title="Close (Escape)">✕</button>
+        `;
+
+        document.body.appendChild(canvasSearchEl);
+
+        const input = canvasSearchEl.querySelector('.canvas-search-input');
+        const prevBtn = canvasSearchEl.querySelector('.prev-match-btn');
+        const nextBtn = canvasSearchEl.querySelector('.next-match-btn');
+        const closeBtn = canvasSearchEl.querySelector('.search-close-btn');
+
+        input.addEventListener('input', () => {
+            performCanvasSearch(input.value);
+        });
+
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                navigateCanvasSearch(e.shiftKey ? -1 : 1);
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                closeCanvasSearch();
+            }
+        });
+
+        prevBtn.addEventListener('click', () => navigateCanvasSearch(-1));
+        nextBtn.addEventListener('click', () => navigateCanvasSearch(1));
+        closeBtn.addEventListener('click', closeCanvasSearch);
+
+        input.focus();
+    }
+
+    function closeCanvasSearch() {
+        if (!canvasSearchEl || !canvasSearchEl.isConnected) return;
+        clearSearchHighlights();
+        canvasSearchEl.remove();
+        canvasSearchEl = null;
+        canvasSearchMatches = [];
+        currentMatchIndex = -1;
+    }
+
+    function clearSearchHighlights() {
+        document.querySelectorAll('.search-highlight').forEach(el => el.classList.remove('search-highlight', 'search-highlight-active'));
+    }
+
+    function performCanvasSearch(query) {
+        clearSearchHighlights();
+        canvasSearchMatches = [];
+        currentMatchIndex = -1;
+        const countEl = canvasSearchEl?.querySelector('.canvas-search-count');
+
+        const trimmed = (query || '').trim().toLowerCase();
+        if (!trimmed) {
+            if (countEl) countEl.textContent = '0/0';
+            return;
+        }
+
+        Object.values(nodes).forEach(n => {
+            if (n.el.style.display === 'none') return;
+            const labelEl = n.el.querySelector('.label');
+            const text = (labelEl ? (labelEl.innerText || labelEl.textContent || '') : '').toLowerCase();
+            const meta = typeof getNodeMetadataEntries === 'function' ? getNodeMetadataEntries(n).map(e => e.value.toLowerCase()).join(' ') : '';
+            if (text.includes(trimmed) || meta.includes(trimmed)) {
+                canvasSearchMatches.push({ type: 'node', id: n.id, el: n.el, x: n.x, y: n.y, w: n.el.offsetWidth, h: n.el.offsetHeight });
+                n.el.classList.add('search-highlight');
+            }
+        });
+
+        Object.values(tables).forEach(t => {
+            if (t.el.style.display === 'none') return;
+            const text = (t.el.innerText || t.el.textContent || '').toLowerCase();
+            if (text.includes(trimmed)) {
+                canvasSearchMatches.push({ type: 'table', id: t.id, el: t.el, x: t.x, y: t.y, w: t.el.offsetWidth, h: t.el.offsetHeight });
+                t.el.classList.add('search-highlight');
+            }
+        });
+
+        connections.forEach((c, idx) => {
+            if (c.label && c.label.toLowerCase().includes(trimmed)) {
+                const metrics = getConnectionRenderMetrics(idx);
+                if (metrics) {
+                    canvasSearchMatches.push({ type: 'conn', index: idx, x: metrics.labelX, y: metrics.labelY, w: 60, h: 20 });
+                }
+            }
+        });
+
+        if (countEl) {
+            countEl.textContent = canvasSearchMatches.length ? `1/${canvasSearchMatches.length}` : '0/0';
+        }
+
+        if (canvasSearchMatches.length > 0) {
+            currentMatchIndex = 0;
+            focusSearchMatch(currentMatchIndex);
+        }
+    }
+
+    function navigateCanvasSearch(delta) {
+        if (canvasSearchMatches.length === 0) return;
+        currentMatchIndex = (currentMatchIndex + delta + canvasSearchMatches.length) % canvasSearchMatches.length;
+        const countEl = canvasSearchEl?.querySelector('.canvas-search-count');
+        if (countEl) {
+            countEl.textContent = `${currentMatchIndex + 1}/${canvasSearchMatches.length}`;
+        }
+        focusSearchMatch(currentMatchIndex);
+    }
+
+    function focusSearchMatch(index) {
+        const match = canvasSearchMatches[index];
+        if (!match) return;
+
+        clearSelection();
+        document.querySelectorAll('.search-highlight-active').forEach(el => el.classList.remove('search-highlight-active'));
+
+        if (match.el) {
+            match.el.classList.add('search-highlight-active');
+            if (match.type === 'node') {
+                selectedNodes.add(match.id);
+                match.el.classList.add('selected');
+            } else if (match.type === 'table') {
+                selectedTableIds.add(match.id);
+                match.el.classList.add('selected');
+            }
+        } else if (match.type === 'conn') {
+            selectedConnectionIndexes.add(match.index);
+        }
+
+        drawConnections();
+        updateToolbarColors();
+
+        const targetCenterX = match.x + (match.w || 0) / 2;
+        const targetCenterY = match.y + (match.h || 0) / 2;
+        panX = (viewport.clientWidth / 2) - targetCenterX * zoom;
+        panY = (viewport.clientHeight / 2) - targetCenterY * zoom;
+        updateTransform();
+    }
+

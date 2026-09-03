@@ -282,8 +282,20 @@ var pendingTableEditContext = null;
         };
     }
 
+    var NODE_MIN_SIZES = {
+        start: { width: 80, height: 36 },
+        process: { width: 80, height: 36 },
+        decision: { width: 70, height: 70 },
+        group: { width: 180, height: 120 },
+        floatingText: { width: 40, height: 24 }
+    };
+
     function isResizableNodeType(type = '') {
-        return type === 'group';
+        return Boolean(type && (type in NODE_MIN_SIZES || type === 'group'));
+    }
+
+    function getNodeMinSize(type = '') {
+        return NODE_MIN_SIZES[type] || GROUP_NODE_MIN_SIZE;
     }
 
     function sanitizeNodeDimension(value, fallback = null) {
@@ -293,15 +305,22 @@ var pendingTableEditContext = null;
     }
 
     function getDefaultNodeSize(type = '') {
-        return isResizableNodeType(type) ? { ...GROUP_NODE_DEFAULT_SIZE } : { width: null, height: null };
+        return type === 'group' ? { ...GROUP_NODE_DEFAULT_SIZE } : { width: null, height: null };
     }
 
     function normalizeNodeSize(type = '', width = null, height = null) {
         if (!isResizableNodeType(type)) return { width: null, height: null };
+        const minSize = getNodeMinSize(type);
         const defaultSize = getDefaultNodeSize(type);
+        const resolvedWidth = (width !== null && width !== undefined && width !== '')
+            ? Math.max(minSize.width, sanitizeNodeDimension(width, minSize.width))
+            : defaultSize.width;
+        const resolvedHeight = (height !== null && height !== undefined && height !== '')
+            ? Math.max(minSize.height, sanitizeNodeDimension(height, minSize.height))
+            : defaultSize.height;
         return {
-            width: Math.max(GROUP_NODE_MIN_SIZE.width, sanitizeNodeDimension(width, defaultSize.width)),
-            height: Math.max(GROUP_NODE_MIN_SIZE.height, sanitizeNodeDimension(height, defaultSize.height))
+            width: resolvedWidth,
+            height: resolvedHeight
         };
     }
 
@@ -517,6 +536,10 @@ var pendingTableEditContext = null;
         return type === 'dependency' ? 'dependency' : DEFAULT_CONNECTION_TYPE;
     }
 
+    function normalizeConnectionStyle(style) {
+        return ['curved', 'orthogonal'].includes(style) ? style : 'straight';
+    }
+
     function normalizeConnectionLabel(label = '') {
         return String(label ?? '');
     }
@@ -526,6 +549,7 @@ var pendingTableEditContext = null;
             from: connection.from,
             to: connection.to,
             type: normalizeConnectionType(connection.type),
+            style: normalizeConnectionStyle(connection.style),
             label: normalizeConnectionLabel(connection.label)
         };
     }
@@ -537,6 +561,9 @@ var pendingTableEditContext = null;
         node.y = y;
         node.el.style.left = `${x}px`;
         node.el.style.top = `${y}px`;
+        if (selectedNodes.size === 1 && selectedNodes.has(node.id) && typeof updateQuickAddHandles === 'function') {
+            updateQuickAddHandles();
+        }
     }
 
     function setNodeSize(nodeOrId, width = null, height = null, options = {}) {
@@ -553,6 +580,9 @@ var pendingTableEditContext = null;
         node.el.style.width = normalizedSize.width ? `${normalizedSize.width}px` : '';
         node.el.style.height = normalizedSize.height ? `${normalizedSize.height}px` : '';
         invalidateCachedElementSizes();
+        if (selectedNodes.size === 1 && selectedNodes.has(node.id) && typeof updateQuickAddHandles === 'function') {
+            updateQuickAddHandles();
+        }
 
         if (typeof drawConnections === 'function') drawConnections();
         if (typeof updateAnalyticsCard === 'function') updateAnalyticsCard();
@@ -648,8 +678,9 @@ var pendingTableEditContext = null;
             clearTimeout(autosaveTimer);
             autosaveTimer = null;
         }
+        const payload = getGraphExportPayload();
         try {
-            window.localStorage?.setItem(AUTO_SAVE_STORAGE_KEY, JSON.stringify(getGraphExportPayload()));
+            window.localStorage?.setItem(AUTO_SAVE_STORAGE_KEY, JSON.stringify(payload));
             setAutosaveStatus('Saved');
         } catch (err) {
             const quotaExceeded = err?.name === 'QuotaExceededError'
@@ -658,8 +689,11 @@ var pendingTableEditContext = null;
                 || /quota/i.test(String(err?.message || err?.name || ''));
             if (quotaExceeded && !autosaveQuotaWarningShown) {
                 autosaveQuotaWarningShown = true;
-                showToast('Autosave failed: browser storage is full. Save your work as a JSON file to avoid losing data.', 'warning', 8000);
+                showToast('Autosave notice: localStorage is full. Your diagram is safely backed up in IndexedDB.', 'info', 5000);
             }
+        }
+        if (typeof saveActiveDiagramState === 'function') {
+            saveActiveDiagramState(payload);
         }
     }
 
@@ -1047,6 +1081,12 @@ var pendingTableEditContext = null;
             allItems.push({ type: 'table', x: t.x, y: t.y, w: t.el.offsetWidth, h: t.el.offsetHeight, data: t });
         });
 
+        allItems.sort((a, b) => {
+            const aIsGroup = a.type === 'node' && a.data?.type === 'group' ? 0 : 1;
+            const bIsGroup = b.type === 'node' && b.data?.type === 'group' ? 0 : 1;
+            return aIsGroup - bIsGroup;
+        });
+
         if (!allItems.length && !connections.length) {
             showToast('Nothing to export.', 'warning');
             return null;
@@ -1076,6 +1116,8 @@ var pendingTableEditContext = null;
         const width = maxX - minX;
         const height = maxY - minY;
 
+        const isDarkTheme = document.body.classList.contains('theme-dark');
+
         const svg = document.createElementNS(ns, 'svg');
         svg.setAttribute('xmlns', ns);
         svg.setAttribute('viewBox', `${minX} ${minY} ${width} ${height}`);
@@ -1087,7 +1129,7 @@ var pendingTableEditContext = null;
         bgRect.setAttribute('y', minY);
         bgRect.setAttribute('width', width);
         bgRect.setAttribute('height', height);
-        bgRect.setAttribute('fill', '#f8fafc');
+        bgRect.setAttribute('fill', isDarkTheme ? '#090d16' : '#f8fafc');
         svg.appendChild(bgRect);
 
         const defs = document.createElementNS(ns, 'defs');
@@ -1100,24 +1142,38 @@ var pendingTableEditContext = null;
         marker.setAttribute('orient', 'auto');
         const poly = document.createElementNS(ns, 'polygon');
         poly.setAttribute('points', '0 0, 10 3.5, 0 7');
-        poly.setAttribute('fill', '#64748b');
+        poly.setAttribute('fill', isDarkTheme ? '#94a3b8' : '#64748b');
         marker.appendChild(poly);
         defs.appendChild(marker);
+
+        const markerDanger = document.createElementNS(ns, 'marker');
+        markerDanger.setAttribute('id', 'arrowhead-danger');
+        markerDanger.setAttribute('markerWidth', '10');
+        markerDanger.setAttribute('markerHeight', '7');
+        markerDanger.setAttribute('refX', '10');
+        markerDanger.setAttribute('refY', '3.5');
+        markerDanger.setAttribute('orient', 'auto');
+        const polyDanger = document.createElementNS(ns, 'polygon');
+        polyDanger.setAttribute('points', '0 0, 10 3.5, 0 7');
+        polyDanger.setAttribute('fill', '#f43f5e');
+        markerDanger.appendChild(polyDanger);
+        defs.appendChild(markerDanger);
         svg.appendChild(defs);
 
         connections.forEach(conn => {
             const metrics = getConnectionRenderMetrics(conn);
             if (!metrics) return;
+            const isDep = normalizeConnectionType(conn.type) === 'dependency';
             const g = document.createElementNS(ns, 'g');
-            const line = document.createElementNS(ns, 'line');
-            line.setAttribute('x1', metrics.start.x);
-            line.setAttribute('y1', metrics.start.y);
-            line.setAttribute('x2', metrics.end.x);
-            line.setAttribute('y2', metrics.end.y);
-            line.setAttribute('stroke', normalizeConnectionType(conn.type) === 'dependency' ? '#f43f5e' : '#64748b');
-            line.setAttribute('stroke-width', '2');
-            line.setAttribute('marker-end', 'url(#arrowhead)');
-            g.appendChild(line);
+            const path = document.createElementNS(ns, 'path');
+            const pathD = metrics.pathData || `M ${metrics.start.x} ${metrics.start.y} L ${metrics.end.x} ${metrics.end.y}`;
+            path.setAttribute('d', pathD);
+            path.setAttribute('fill', 'none');
+            path.setAttribute('stroke', isDep ? '#f43f5e' : (isDarkTheme ? '#94a3b8' : '#64748b'));
+            path.setAttribute('stroke-width', '2');
+            if (isDep) path.setAttribute('stroke-dasharray', '10 7');
+            path.setAttribute('marker-end', isDep ? 'url(#arrowhead-danger)' : 'url(#arrowhead)');
+            g.appendChild(path);
 
             if (conn.label) {
                 const text = document.createElementNS(ns, 'text');
@@ -1126,8 +1182,9 @@ var pendingTableEditContext = null;
                 text.setAttribute('text-anchor', 'middle');
                 text.setAttribute('dominant-baseline', 'middle');
                 text.setAttribute('font-size', '12');
+                text.setAttribute('font-weight', '700');
                 text.setAttribute('font-family', 'system-ui, sans-serif');
-                text.setAttribute('fill', '#0f172a');
+                text.setAttribute('fill', isDarkTheme ? '#f1f5f9' : '#334155');
                 text.textContent = conn.label;
                 g.appendChild(text);
             }
@@ -1158,36 +1215,69 @@ var pendingTableEditContext = null;
                         shape.setAttribute('ry', '8');
                     }
                 }
-                shape.setAttribute('fill', n.bgColor || '#ffffff');
-                shape.setAttribute('stroke', '#94a3b8');
+
+                if (n.type === 'group') {
+                    shape.setAttribute('fill', isDarkTheme ? 'rgba(30, 41, 59, 0.4)' : 'rgba(239, 246, 255, 0.4)');
+                    shape.setAttribute('stroke', isDarkTheme ? '#475569' : '#94a3b8');
+                    shape.setAttribute('stroke-dasharray', '6 4');
+                } else {
+                    const defaultFill = isDarkTheme ? '#1e293b' : '#ffffff';
+                    shape.setAttribute('fill', n.bgColor || defaultFill);
+                    shape.setAttribute('stroke', isDarkTheme ? '#334155' : '#94a3b8');
+                }
                 shape.setAttribute('stroke-width', '2');
                 g.appendChild(shape);
 
                 const label = n.el.querySelector('.label');
                 const textContent = label ? (label.innerText || label.textContent || '').trim() : '';
-                if (textContent && n.type !== 'floatingText') {
+                if (textContent) {
                     const text = document.createElementNS(ns, 'text');
-                    text.setAttribute('x', n.x + item.w / 2);
-                    text.setAttribute('y', n.y + item.h / 2);
-                    text.setAttribute('text-anchor', 'middle');
-                    text.setAttribute('dominant-baseline', 'middle');
+                    const isFloating = n.type === 'floatingText';
+                    const defaultTextFill = isDarkTheme ? '#f8fafc' : '#0f172a';
+                    text.setAttribute('fill', n.textColor || defaultTextFill);
                     text.setAttribute('font-size', '14');
                     text.setAttribute('font-weight', '600');
                     text.setAttribute('font-family', 'system-ui, sans-serif');
-                    text.setAttribute('fill', n.textColor || '#0f172a');
-                    text.textContent = textContent;
+
+                    const lines = textContent.split(/\r?\n/).filter((l, idx, arr) => l.length > 0 || arr.length > 1);
+                    const lineHeight = 18;
+                    const totalTextH = lines.length * lineHeight;
+                    const startY = (n.y + item.h / 2) - (totalTextH / 2) + 13;
+
+                    if (lines.length <= 1) {
+                        text.setAttribute('x', isFloating ? n.x + 4 : n.x + item.w / 2);
+                        text.setAttribute('y', n.y + item.h / 2);
+                        text.setAttribute('dominant-baseline', 'middle');
+                        if (!isFloating) text.setAttribute('text-anchor', 'middle');
+                        text.textContent = textContent;
+                    } else {
+                        lines.forEach((lineStr, lineIdx) => {
+                            const tspan = document.createElementNS(ns, 'tspan');
+                            tspan.setAttribute('x', isFloating ? n.x + 4 : n.x + item.w / 2);
+                            tspan.setAttribute('y', startY + lineIdx * lineHeight);
+                            if (!isFloating) tspan.setAttribute('text-anchor', 'middle');
+                            tspan.textContent = lineStr;
+                            text.appendChild(tspan);
+                        });
+                    }
                     g.appendChild(text);
-                } else if (n.type === 'floatingText' && textContent) {
-                    const text = document.createElementNS(ns, 'text');
-                    text.setAttribute('x', n.x + 4);
-                    text.setAttribute('y', n.y + item.h / 2);
-                    text.setAttribute('dominant-baseline', 'middle');
-                    text.setAttribute('font-size', '14');
-                    text.setAttribute('font-weight', '600');
-                    text.setAttribute('font-family', 'system-ui, sans-serif');
-                    text.setAttribute('fill', n.textColor || '#0f172a');
-                    text.textContent = textContent;
-                    g.appendChild(text);
+                }
+
+                if (typeof getNodeMetadataEntries === 'function') {
+                    const metaEntries = getNodeMetadataEntries(n);
+                    if (metaEntries.length > 0) {
+                        const metaText = metaEntries.map(e => `${e.label}: ${e.value}`).join(' • ');
+                        const metaSvg = document.createElementNS(ns, 'text');
+                        metaSvg.setAttribute('x', n.x + item.w / 2);
+                        metaSvg.setAttribute('y', n.y + item.h - 8);
+                        metaSvg.setAttribute('text-anchor', 'middle');
+                        metaSvg.setAttribute('font-size', '10');
+                        metaSvg.setAttribute('font-weight', '600');
+                        metaSvg.setAttribute('font-family', 'system-ui, sans-serif');
+                        metaSvg.setAttribute('fill', isDarkTheme ? '#94a3b8' : '#64748b');
+                        metaSvg.textContent = metaText;
+                        g.appendChild(metaSvg);
+                    }
                 }
             } else if (item.type === 'table') {
                 const t = item.data;
@@ -1196,8 +1286,8 @@ var pendingTableEditContext = null;
                 rect.setAttribute('y', t.y);
                 rect.setAttribute('width', item.w);
                 rect.setAttribute('height', item.h);
-                rect.setAttribute('fill', t.bgColor || '#ffffff');
-                rect.setAttribute('stroke', '#94a3b8');
+                rect.setAttribute('fill', t.bgColor || (isDarkTheme ? '#1e293b' : '#ffffff'));
+                rect.setAttribute('stroke', isDarkTheme ? '#334155' : '#94a3b8');
                 rect.setAttribute('stroke-width', '2');
                 rect.setAttribute('rx', '8');
                 g.appendChild(rect);
@@ -1300,3 +1390,50 @@ var pendingTableEditContext = null;
             });
         });
     }
+
+    var THEME_STORAGE_KEY = 'noodle-theme';
+    var currentThemeMode = 'auto';
+
+    function getSavedTheme() {
+        try {
+            return window.localStorage?.getItem(THEME_STORAGE_KEY) || 'auto';
+        } catch (e) {
+            return 'auto';
+        }
+    }
+
+    function applyTheme(mode) {
+        currentThemeMode = mode;
+        const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const effectiveDark = mode === 'dark' || (mode === 'auto' && prefersDark);
+        document.body.classList.toggle('theme-dark', effectiveDark);
+        updateThemeUI();
+        try {
+            window.localStorage?.setItem(THEME_STORAGE_KEY, mode);
+        } catch (e) {}
+    }
+
+    function toggleTheme() {
+        const nextMode = currentThemeMode === 'auto' ? 'dark' : currentThemeMode === 'dark' ? 'light' : 'auto';
+        applyTheme(nextMode);
+        if (typeof showToast === 'function') {
+            showToast(`Theme: ${nextMode.charAt(0).toUpperCase() + nextMode.slice(1)}`, 'info', 2000);
+        }
+    }
+
+    function updateThemeUI() {
+        const btn = document.getElementById('themeToggleBtn');
+        if (!btn) return;
+        const isDark = document.body.classList.contains('theme-dark');
+        btn.title = `Theme: ${currentThemeMode} (click to toggle)`;
+        btn.setAttribute('aria-label', `Toggle Theme (current: ${currentThemeMode})`);
+        const icon = btn.querySelector('svg');
+        if (icon) {
+            if (isDark) {
+                icon.innerHTML = '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>';
+            } else {
+                icon.innerHTML = '<circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path>';
+            }
+        }
+    }
+

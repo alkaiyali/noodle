@@ -1,6 +1,6 @@
 'use strict';
 
-var CACHE = 'noodle-v1';
+var CACHE = 'noodle-v2';
 
 var PRECACHE_URLS = [
     '.',
@@ -8,6 +8,7 @@ var PRECACHE_URLS = [
     'styles/app.css',
     'scripts/app-core.js',
     'scripts/app-ui.js',
+    'scripts/app-storage.js',
     'scripts/app-nodes.js',
     'scripts/app-tables.js',
     'scripts/app-tables-clipboard.js',

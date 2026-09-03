@@ -225,6 +225,56 @@
         applyNodePositions(positionMap);
     }
 
+    function placeLayerNodes(bucket, desiredCenters, metricsById, rowGap) {
+        if (!bucket.length) return {};
+        if (bucket.length === 1) {
+            const id = bucket[0];
+            const h = metricsById[id].height;
+            return { [id]: desiredCenters[id] - h / 2 };
+        }
+
+        const blocks = [];
+
+        bucket.forEach(id => {
+            const h = metricsById[id].height;
+            const targetCenter = desiredCenters[id];
+            const block = {
+                items: [id],
+                height: h,
+                centerSum: targetCenter,
+                get center() { return this.centerSum / this.items.length; },
+                get top() { return this.center - this.height / 2; }
+            };
+
+            while (blocks.length > 0) {
+                const prev = blocks[blocks.length - 1];
+                const proposedPrevTop = prev.center - prev.height / 2;
+                const proposedCurrTop = block.center - block.height / 2;
+                if (proposedPrevTop + prev.height + rowGap > proposedCurrTop) {
+                    blocks.pop();
+                    block.items = [...prev.items, ...block.items];
+                    block.height = prev.height + rowGap + block.height;
+                    block.centerSum = prev.centerSum + block.centerSum;
+                } else {
+                    break;
+                }
+            }
+            blocks.push(block);
+        });
+
+        const result = {};
+        blocks.forEach(block => {
+            let cursorY = block.top;
+            block.items.forEach(id => {
+                const h = metricsById[id].height;
+                result[id] = cursorY;
+                cursorY += h + rowGap;
+            });
+        });
+
+        return result;
+    }
+
     function runTopologicalLayout() {
         const selectedIds = getSelectedVisibleNodeIds();
         const nodeIds = selectedIds.length > 1 ? selectedIds : getVisibleNodeIds();
@@ -234,6 +284,7 @@
         const idSet = new Set(nodeIds);
         const indegree = Object.fromEntries(nodeIds.map(id => [id, 0]));
         const adjacency = Object.fromEntries(nodeIds.map(id => [id, new Set()]));
+        const reverseAdjacency = Object.fromEntries(nodeIds.map(id => [id, new Set()]));
         const layers = Object.fromEntries(nodeIds.map(id => [id, 0]));
 
         connections.forEach(conn => {
@@ -242,68 +293,185 @@
             if (!fromId || !toId || fromId === toId || !idSet.has(fromId) || !idSet.has(toId)) return;
             if (adjacency[fromId].has(toId)) return;
             adjacency[fromId].add(toId);
+            reverseAdjacency[toId].add(fromId);
             indegree[toId] += 1;
         });
 
         Object.keys(adjacency).forEach(id => {
             adjacency[id] = Array.from(adjacency[id]).sort((a, b) => orderedIds.indexOf(a) - orderedIds.indexOf(b));
+            reverseAdjacency[id] = Array.from(reverseAdjacency[id]).sort((a, b) => orderedIds.indexOf(a) - orderedIds.indexOf(b));
         });
 
+        const remainingSet = new Set(nodeIds);
         const queue = orderedIds.filter(id => indegree[id] === 0);
+        queue.forEach(id => remainingSet.delete(id));
         const topoOrder = [];
-        while (queue.length) {
+
+        while (topoOrder.length < nodeIds.length) {
+            if (queue.length === 0) {
+                let bestId = null;
+                let minDegree = Infinity;
+                for (const id of remainingSet) {
+                    if (indegree[id] < minDegree) {
+                        minDegree = indegree[id];
+                        bestId = id;
+                    }
+                }
+                if (!bestId) break;
+                remainingSet.delete(bestId);
+                queue.push(bestId);
+            }
+
             const currentId = queue.shift();
             topoOrder.push(currentId);
+
             adjacency[currentId].forEach(nextId => {
                 layers[nextId] = Math.max(layers[nextId], layers[currentId] + 1);
                 indegree[nextId] -= 1;
-                if (indegree[nextId] === 0) queue.push(nextId);
+                if (indegree[nextId] <= 0 && remainingSet.has(nextId)) {
+                    remainingSet.delete(nextId);
+                    queue.push(nextId);
+                }
             });
         }
 
-        const remaining = orderedIds.filter(id => !topoOrder.includes(id));
-        let maxLayer = topoOrder.length ? Math.max(...topoOrder.map(id => layers[id])) : -1;
-        remaining.forEach(id => {
-            maxLayer += 1;
-            layers[id] = maxLayer;
-            topoOrder.push(id);
+        for (let i = topoOrder.length - 1; i >= 0; i -= 1) {
+            const id = topoOrder[i];
+            const outgoing = adjacency[id];
+            if (outgoing.length > 0) {
+                const minChildLayer = Math.min(...outgoing.map(nextId => layers[nextId]));
+                const maxParentLayer = reverseAdjacency[id].length > 0
+                    ? Math.max(...reverseAdjacency[id].map(prevId => layers[prevId]))
+                    : -1;
+                const targetLayer = minChildLayer - 1;
+                if (targetLayer > layers[id] && targetLayer > maxParentLayer) {
+                    if (reverseAdjacency[id].length === 0) {
+                        layers[id] = targetLayer;
+                    }
+                }
+            }
+        }
+
+        const uniqueLayers = Array.from(new Set(Object.values(layers))).sort((a, b) => a - b);
+        const layerRankMap = new Map(uniqueLayers.map((layer, index) => [layer, index]));
+        nodeIds.forEach(id => {
+            layers[id] = layerRankMap.get(layers[id]);
         });
 
-        const buckets = new Map();
+        const layerBucketsMap = new Map();
+        uniqueLayers.forEach((_, rank) => layerBucketsMap.set(rank, []));
         topoOrder.forEach(id => {
             const layer = layers[id];
-            if (!buckets.has(layer)) buckets.set(layer, []);
-            buckets.get(layer).push(id);
+            layerBucketsMap.get(layer).push(id);
         });
+
+        const layerKeys = [...layerBucketsMap.keys()].sort((a, b) => a - b);
+        const fallbackOrderById = Object.fromEntries(orderedIds.map((id, index) => [id, index]));
+
+        const getOrderIndexById = () => {
+            const orderIndexById = {};
+            layerKeys.forEach(layer => {
+                (layerBucketsMap.get(layer) || []).forEach((id, index) => {
+                    orderIndexById[id] = index;
+                });
+            });
+            return orderIndexById;
+        };
+
+        const sortLayerBucketByScore = (layer, relatedIdsByNode) => {
+            const orderIndexById = getOrderIndexById();
+            const bucket = [...(layerBucketsMap.get(layer) || [])];
+            bucket.sort((a, b) => {
+                const relatedA = relatedIdsByNode[a] || [];
+                const relatedB = relatedIdsByNode[b] || [];
+                const scoreA = relatedA.length
+                    ? relatedA.reduce((sum, id) => sum + (Number.isFinite(orderIndexById[id]) ? orderIndexById[id] : fallbackOrderById[id]), 0) / relatedA.length
+                    : fallbackOrderById[a];
+                const scoreB = relatedB.length
+                    ? relatedB.reduce((sum, id) => sum + (Number.isFinite(orderIndexById[id]) ? orderIndexById[id] : fallbackOrderById[id]), 0) / relatedB.length
+                    : fallbackOrderById[b];
+                if (Math.abs(scoreA - scoreB) > 0.001) return scoreA - scoreB;
+                return fallbackOrderById[a] - fallbackOrderById[b];
+            });
+            layerBucketsMap.set(layer, bucket);
+        };
+
+        for (let iteration = 0; iteration < 4; iteration += 1) {
+            layerKeys.slice(1).forEach(layer => sortLayerBucketByScore(layer, reverseAdjacency));
+            [...layerKeys].reverse().slice(1).forEach(layer => sortLayerBucketByScore(layer, adjacency));
+        }
 
         const metrics = getNodeMetrics(nodeIds);
         const metricsById = Object.fromEntries(metrics.map(metric => [metric.id, metric]));
         const bounds = getNodeBounds(metrics);
-        const layerKeys = [...buckets.keys()].sort((a, b) => a - b);
         const medianWidth = getMedianMetricSize(metrics, 'width');
         const medianHeight = getMedianMetricSize(metrics, 'height');
-        const columnGap = Math.max(110, Math.min(220, medianWidth * 0.55 + 40));
-        const rowGap = Math.max(70, Math.min(140, medianHeight * 0.35 + 30));
+
+        const columnGap = Math.max(54, Math.min(104, Math.round(medianWidth * 0.32 + 20)));
+        const rowGap = Math.max(26, Math.min(54, Math.round(medianHeight * 0.32 + 14)));
         const verticalCenter = bounds.top + bounds.height / 2;
+
+        const layerWidths = {};
+        layerKeys.forEach(layer => {
+            const bucket = layerBucketsMap.get(layer) || [];
+            layerWidths[layer] = Math.max(...bucket.map(id => metricsById[id].width));
+        });
+
         const positionMap = {};
         let currentX = bounds.left;
-
         layerKeys.forEach(layer => {
-            const bucket = sortNodeIdsByPosition(buckets.get(layer));
-            const bucketWidth = Math.max(...bucket.map(id => metricsById[id].width));
+            const bucket = layerBucketsMap.get(layer) || [];
             const totalHeight = bucket.reduce((sum, id) => sum + metricsById[id].height, 0) + rowGap * Math.max(0, bucket.length - 1);
-            let currentY = verticalCenter - totalHeight / 2;
-
+            let curY = verticalCenter - totalHeight / 2;
             bucket.forEach(id => {
                 const metric = metricsById[id];
                 positionMap[id] = {
-                    x: currentX + (bucketWidth - metric.width) / 2,
-                    y: currentY
+                    x: currentX + (layerWidths[layer] - metric.width) / 2,
+                    y: curY
                 };
-                currentY += metric.height + rowGap;
+                curY += metric.height + rowGap;
+            });
+            currentX += layerWidths[layer] + columnGap;
+        });
+
+        const relaxLayerY = (layer, relatedNodesMap) => {
+            const bucket = layerBucketsMap.get(layer) || [];
+            if (bucket.length === 0) return;
+
+            const desiredCenters = {};
+            bucket.forEach(id => {
+                const related = relatedNodesMap[id] || [];
+                if (related.length > 0) {
+                    desiredCenters[id] = related.reduce((sum, rId) => sum + positionMap[rId].y + metricsById[rId].height / 2, 0) / related.length;
+                } else {
+                    desiredCenters[id] = positionMap[id].y + metricsById[id].height / 2;
+                }
             });
 
-            currentX += bucketWidth + columnGap;
+            const placedY = placeLayerNodes(bucket, desiredCenters, metricsById, rowGap);
+            Object.entries(placedY).forEach(([id, y]) => {
+                positionMap[id].y = y;
+            });
+        };
+
+        for (let r = 0; r < 4; r += 1) {
+            layerKeys.slice(1).forEach(layer => relaxLayerY(layer, reverseAdjacency));
+            [...layerKeys].reverse().slice(1).forEach(layer => relaxLayerY(layer, adjacency));
+        }
+
+        const allPlacedMetrics = nodeIds.map(id => ({
+            id,
+            x: positionMap[id].x,
+            y: positionMap[id].y,
+            width: metricsById[id].width,
+            height: metricsById[id].height
+        }));
+        const newMinY = Math.min(...allPlacedMetrics.map(m => m.y));
+        const newMaxY = Math.max(...allPlacedMetrics.map(m => m.y + m.height));
+        const newCenterY = (newMinY + newMaxY) / 2;
+        const yShift = verticalCenter - newCenterY;
+        nodeIds.forEach(id => {
+            positionMap[id].y += yShift;
         });
 
         applyNodePositions(positionMap);

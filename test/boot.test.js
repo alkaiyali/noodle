@@ -196,6 +196,124 @@ function ok(message) {
         else ok('help overlay closes');
     }
 
+    // Multi-document manager functions
+    if (typeof window.initDocumentStorage !== 'function') fail('initDocumentStorage is not defined');
+    else {
+        await window.initDocumentStorage();
+        const docs = await window.listAllDiagrams();
+        if (!Array.isArray(docs) || docs.length === 0) fail('expected at least 1 document listed');
+        else ok(`multi-document manager initialized (${docs.length} diagram(s))`);
+    }
+
+    // Theme toggling and persistence
+    if (typeof window.applyTheme !== 'function' || typeof window.toggleTheme !== 'function') fail('theme functions not defined');
+    else {
+        window.applyTheme('dark');
+        if (!window.document.body.classList.contains('theme-dark')) fail('body missing theme-dark class');
+        else ok('dark theme applied to body');
+        window.applyTheme('light');
+        if (window.document.body.classList.contains('theme-dark')) fail('theme-dark class not removed in light mode');
+        else ok('light theme applied');
+    }
+
+    // Connector styles and SVG path rendering
+    if (typeof window.normalizeConnectionStyle !== 'function') fail('normalizeConnectionStyle is not defined');
+    else {
+        const style1 = window.normalizeConnectionStyle('curved');
+        const style2 = window.normalizeConnectionStyle('orthogonal');
+        const style3 = window.normalizeConnectionStyle('invalid');
+        if (style1 !== 'curved' || style2 !== 'orthogonal' || style3 !== 'straight') fail('normalizeConnectionStyle returned invalid values');
+        else ok('normalizeConnectionStyle normalizes styles properly');
+    }
+
+    // Mermaid export and import
+    if (typeof window.exportMermaidText !== 'function' || typeof window.importMermaidText !== 'function') fail('Mermaid functions not defined');
+    else {
+        const mmdText = `flowchart TD\n    A["Alpha"] --> B["Beta"]\n    B -.-> C{"Decision"}`;
+        const imported = window.importMermaidText(mmdText);
+        if (!imported) fail('importMermaidText failed');
+        else if (Object.keys(window.nodes).length < 3) fail('expected at least 3 nodes from Mermaid import');
+        else {
+            ok('Mermaid text imported');
+            const exported = window.exportMermaidText();
+            if (!exported.includes('flowchart TD') || !exported.includes('Alpha')) fail('exportMermaidText did not produce expected output');
+            else ok('exportMermaidText outputs valid Mermaid format');
+        }
+    }
+
+    // Topological layout algorithm
+    if (typeof window.runTopologicalLayout !== 'function') fail('runTopologicalLayout is not defined');
+    else {
+        window.runTopologicalLayout();
+        const nodeValues = Object.values(window.nodes);
+        if (nodeValues.length < 2) fail('expected >= 2 nodes to test runTopologicalLayout');
+        else {
+            // Verify topological layout executed and produced valid coordinates
+            const allHavePositions = nodeValues.every(n => Number.isFinite(n.x) && Number.isFinite(n.y));
+            if (!allHavePositions) fail('runTopologicalLayout produced invalid coordinates');
+            else ok('runTopologicalLayout computes clean, finite node positions');
+        }
+    }
+
+    // Canvas Find (Ctrl+F)
+    if (typeof window.openCanvasSearch !== 'function') fail('openCanvasSearch is not defined');
+    else {
+        window.openCanvasSearch();
+        const searchBar = window.document.getElementById('canvasSearch');
+        if (!searchBar) fail('canvas search bar did not render');
+        else {
+            const input = searchBar.querySelector('.canvas-search-input');
+            input.value = 'Alpha';
+            input.dispatchEvent(new window.Event('input', { bubbles: true }));
+            const count = searchBar.querySelector('.canvas-search-count');
+            if (!count.textContent.includes('1/')) fail(`expected match count for 'Alpha', got ${count.textContent}`);
+            else ok('canvas search finds matching nodes');
+            window.closeCanvasSearch();
+            if (window.document.getElementById('canvasSearch')) fail('canvas search did not close');
+            else ok('canvas search closes');
+        }
+    }
+
+    // Quick-Add directional handles
+    if (typeof window.updateQuickAddHandles !== 'function') fail('updateQuickAddHandles is not defined');
+    else {
+        const firstNodeId = Object.keys(window.nodes)[0];
+        window.clearSelection();
+        window.selectedNodes.add(firstNodeId);
+        window.updateQuickAddHandles();
+        const container = window.document.getElementById('quickAddContainer');
+        const buttons = container?.querySelectorAll('.quick-add-btn');
+        if (!buttons || buttons.length !== 4) fail('expected 4 directional quick-add buttons');
+        else ok('quick-add directional handles rendered for selected node');
+
+        const initialRightLeft = container.querySelector('.quick-add-right').style.left;
+        window.setNodePosition(firstNodeId, window.nodes[firstNodeId].x + 50, window.nodes[firstNodeId].y + 30);
+        const updatedRightLeft = container.querySelector('.quick-add-right').style.left;
+        if (initialRightLeft === updatedRightLeft) fail('quick-add handles did not follow node movement');
+        else ok('quick-add directional handles follow node movement');
+    }
+
+    // Manual node resizing
+    if (typeof window.isResizableNodeType !== 'function' || typeof window.setNodeSize !== 'function') fail('resize functions not defined');
+    else {
+        const resizableTypes = ['process', 'start', 'decision', 'group', 'floatingText'];
+        const allResizable = resizableTypes.every(t => window.isResizableNodeType(t));
+        if (!allResizable) fail('not all standard node types are resizable');
+        else ok('all standard node types are marked resizable');
+
+        const testNodeId = Object.keys(window.nodes)[0];
+        window.setNodeSize(testNodeId, 220, 110);
+        const nodeObj = window.nodes[testNodeId];
+        if (nodeObj.width !== 220 || nodeObj.height !== 110) fail(`node size not updated, got ${nodeObj.width}x${nodeObj.height}`);
+        else if (nodeObj.el.style.width !== '220px' || nodeObj.el.style.height !== '110px') fail(`node element style not updated: ${nodeObj.el.style.width}x${nodeObj.el.style.height}`);
+        else ok('manual node resize updates width and height');
+
+        window.setNodeSize(testNodeId, null, null);
+        if (nodeObj.width !== null || nodeObj.height !== null) fail('node size not reset to null');
+        else if (nodeObj.el.style.width !== '' || nodeObj.el.style.height !== '') fail('node element style width not cleared on reset');
+        else ok('manual node resize reset to auto size works');
+    }
+
     console.log(process.exitCode ? '\nSMOKE TEST FAILED' : '\nSMOKE TEST PASSED');
 })().catch(err => {
     console.error('FATAL:', err);

@@ -173,17 +173,20 @@ var helpOverlayEl = null;
 function getHelpShortcutEntries() {
     return [
         { keys: 'Ctrl+Z / Ctrl+Y', label: 'Undo / Redo' },
-        { keys: 'Ctrl+C / Ctrl+V / Ctrl+X', label: 'Copy / Paste / Cut' },
+        { keys: 'Ctrl+C / Ctrl+V / Ctrl+X', label: 'Copy / Paste / Cut (incl. images & JSON)' },
         { keys: 'Ctrl+D', label: 'Duplicate' },
         { keys: 'Del / Backspace', label: 'Delete selection' },
         { keys: 'Ctrl+A', label: 'Select all' },
+        { keys: 'Ctrl+F', label: 'Find on canvas' },
+        { keys: 'Arrow keys', label: 'Nudge selection (grid-snapped)' },
+        { keys: 'Shift + Arrow', label: 'Large nudge (3x grid / 10px)' },
         { keys: 'Alt + click', label: 'Connect nodes once' },
-        { keys: 'Enter', label: 'Edit label of selected node or arrow' },
-        { keys: 'F2', label: 'Edit node label' },
-        { keys: 'Shift + drag', label: 'Add to selection' },
-        { keys: 'Mouse wheel', label: 'Zoom' },
-        { keys: 'Drag canvas', label: 'Pan' },
-        { keys: 'Drag onto toolbar', label: 'Delete item' },
+        { keys: 'Enter / F2', label: 'Edit label of selected node or arrow' },
+        { keys: 'Shift + drag', label: 'Add to marquee selection' },
+        { keys: 'Mouse wheel', label: 'Zoom in / out' },
+        { keys: 'Drag canvas', label: 'Pan view' },
+        { keys: 'Drag corner handle', label: 'Resize node manually (Shift locks aspect)' },
+        { keys: 'Double-click handle', label: 'Reset node to auto-fit size' },
         { keys: 'Right-click / long-press', label: 'Context menu' },
         { keys: '?', label: 'Toggle this help' }
     ];
