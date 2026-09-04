@@ -4,16 +4,28 @@
 // autosave as before. Zero runtime dependencies.
 
 var SHARE_HASH_KEY = 'd';
-var SHARE_PAYLOAD_VERSION = 1;
 var SHARE_PLAIN_PREFIX = '1.';
 var SHARE_COMPRESSED_PREFIX = '2.';
 
-function shareTextEncode(text) {
-    return new TextEncoder().encode(String(text));
+// UTF-8 helpers with fallbacks: TextEncoder/Decoder exist in all browsers,
+// Buffer covers Node-like runtimes, and the encodeURIComponent path works
+// anywhere btoa/atob exist (found while testing: jsdom lacks TextEncoder).
+function utf8Encode(text) {
+    const str = String(text);
+    if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(str);
+    if (typeof Buffer !== 'undefined') return Buffer.from(str, 'utf8');
+    const bin = unescape(encodeURIComponent(str));
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
 }
 
-function shareTextDecode(bytes) {
-    return new TextDecoder().decode(bytes);
+function utf8Decode(bytes) {
+    if (typeof TextDecoder !== 'undefined') return new TextDecoder().decode(bytes);
+    if (typeof Buffer !== 'undefined') return Buffer.from(bytes).toString('utf8');
+    let bin = '';
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return decodeURIComponent(escape(bin));
 }
 
 function bytesToBase64Url(bytes) {
@@ -46,7 +58,7 @@ function base64UrlToBytes(b64url) {
 }
 
 function base64UrlToText(b64url) {
-    return shareTextDecode(base64UrlToBytes(b64url));
+    return utf8Decode(base64UrlToBytes(b64url));
 }
 
 async function streamToBytes(readable) {
@@ -100,30 +112,220 @@ async function encodeSharePayloadText(jsonText) {
     const text = String(jsonText);
     if (typeof CompressionStream !== 'undefined' && typeof ReadableStream !== 'undefined') {
         try {
-            const rawBytes = shareTextEncode(text);
+            const rawBytes = utf8Encode(text);
             const compressed = await deflateRawBytes(rawBytes);
             const compressedToken = SHARE_COMPRESSED_PREFIX + bytesToBase64Url(compressed);
             const plainToken = SHARE_PLAIN_PREFIX + bytesToBase64Url(rawBytes);
             return compressedToken.length <= plainToken.length ? compressedToken : plainToken;
         } catch (err) {}
     }
-    return SHARE_PLAIN_PREFIX + bytesToBase64Url(shareTextEncode(text));
+    return SHARE_PLAIN_PREFIX + bytesToBase64Url(utf8Encode(text));
 }
 
 async function decodeSharePayloadText(token) {
-    const raw = String(token || '').trim();
+    // Strip whitespace: chat apps and email clients often wrap very long URLs
+    // with line breaks, which would otherwise corrupt the token.
+    const raw = String(token || '').replace(/\s+/g, '');
     if (!raw) throw new Error('Empty share payload.');
     if (raw.startsWith(SHARE_COMPRESSED_PREFIX)) {
         if (typeof DecompressionStream === 'undefined') {
             throw new Error('Compressed share link needs a browser with DecompressionStream support.');
         }
-        return shareTextDecode(await inflateRawBytes(base64UrlToBytes(raw.slice(SHARE_COMPRESSED_PREFIX.length))));
+        return utf8Decode(await inflateRawBytes(base64UrlToBytes(raw.slice(SHARE_COMPRESSED_PREFIX.length))));
     }
     if (raw.startsWith(SHARE_PLAIN_PREFIX)) {
         return base64UrlToText(raw.slice(SHARE_PLAIN_PREFIX.length));
     }
     // Back-compat: raw base64url JSON without a version prefix.
     return base64UrlToText(raw);
+}
+
+// ===== Compact share schema (v2) =====
+// The verbose export payload repeats key names and default values on every
+// item (e.g. "bgColor":"#ffffff"). The compact form stores items as positional
+// arrays with single-letter type codes and drops anything equal to the
+// default, which compresses significantly better. v1 links keep decoding.
+
+var SHARE_NODE_TYPES_ENCODE = {
+    start: 's',
+    process: 'p',
+    decision: 'd',
+    group: 'g',
+    floatingText: 'f',
+    table: 't'
+};
+
+var SHARE_NODE_TYPES_DECODE = {
+    s: 'start',
+    p: 'process',
+    d: 'decision',
+    g: 'group',
+    f: 'floatingText',
+    t: 'table'
+};
+
+var SHARE_DEFAULT_BG = '#ffffff';
+var SHARE_DEFAULT_FG = '#0f172a';
+
+function shareNum(value, fallback) {
+    const num = Number(value);
+    return Number.isFinite(num) ? Math.round(num) : fallback;
+}
+
+function shareTrimmed(arr) {
+    while (arr.length && (arr[arr.length - 1] == null || arr[arr.length - 1] === '')) arr.pop();
+    return arr;
+}
+
+function compactShareNode(n) {
+    if (!n || typeof n.id === 'undefined') return null;
+    const content = n.html ? String(n.html) : String(n.text || '');
+    const arr = [
+        String(n.id),
+        SHARE_NODE_TYPES_ENCODE[n.type] || String(n.type || 'process'),
+        shareNum(n.x, 0),
+        shareNum(n.y, 0),
+        content || null,
+        n.html ? 1 : null,
+        n.bgColor && n.bgColor !== SHARE_DEFAULT_BG ? String(n.bgColor) : null,
+        n.textColor && n.textColor !== SHARE_DEFAULT_FG ? String(n.textColor) : null,
+        n.width != null ? shareNum(n.width, null) : null,
+        n.height != null ? shareNum(n.height, null) : null,
+        n.parentGroupId ? String(n.parentGroupId) : null,
+        n.metadata && typeof n.metadata === 'object' ? n.metadata : null
+    ];
+    return shareTrimmed(arr);
+}
+
+function compactShareConnection(c) {
+    if (!c || typeof c.from === 'undefined' || typeof c.to === 'undefined') return null;
+    const type = c.type === 'dependency' ? 'd' : null;
+    const style = c.style === 'curved' ? 'c' : (c.style === 'orthogonal' ? 'o' : null);
+    const label = c.label ? String(c.label) : null;
+    return shareTrimmed([String(c.from), String(c.to), type, style, label]);
+}
+
+function compactShareTable(t) {
+    if (!t || typeof t.id === 'undefined') return null;
+    const filters = Array.isArray(t.filters) ? t.filters : [];
+    const arr = [
+        String(t.id),
+        shareNum(t.x, 0),
+        shareNum(t.y, 0),
+        t.html ? String(t.html) : null,
+        t.bgColor && t.bgColor !== SHARE_DEFAULT_BG ? String(t.bgColor) : null,
+        t.textColor && t.textColor !== SHARE_DEFAULT_FG ? String(t.textColor) : null,
+        t.filtersEnabled ? 1 : null,
+        filters.length ? filters : null,
+        t.sortState && typeof t.sortState === 'object' ? t.sortState : null
+    ];
+    return shareTrimmed(arr);
+}
+
+// data is a getGraphExportPayload()-shaped object; returns the compact form.
+function compactGraphForShare(data) {
+    const compact = {
+        n: (Array.isArray(data.nodes) ? data.nodes : []).map(compactShareNode).filter(Boolean),
+        l: (Array.isArray(data.connections) ? data.connections : []).map(compactShareConnection).filter(Boolean)
+    };
+    const tables = (Array.isArray(data.tables) ? data.tables : []).map(compactShareTable).filter(Boolean);
+    if (tables.length) compact.b = tables;
+    if (data.camera && (data.camera.panX || data.camera.panY || data.camera.zoom !== 1)) {
+        compact.cam = [shareNum(data.camera.panX, 0), shareNum(data.camera.panY, 0), Number(data.camera.zoom) || 1];
+    }
+    const cs = (Array.isArray(data.collapsedSequenceNodes) ? data.collapsedSequenceNodes : []).filter(id => typeof id === 'string');
+    const cd = (Array.isArray(data.collapsedDependencyNodes) ? data.collapsedDependencyNodes : []).filter(id => typeof id === 'string');
+    if (cs.length) compact.cs = cs;
+    if (cd.length) compact.cd = cd;
+    return compact;
+}
+
+function expandShareNode(a) {
+    if (!Array.isArray(a) || a[0] == null || a[0] === '') return null;
+    const code = a[1];
+    const type = SHARE_NODE_TYPES_DECODE[code] || (typeof code === 'string' && code ? code : 'process');
+    const node = {
+        id: String(a[0]),
+        type,
+        x: shareNum(a[2], 0),
+        y: shareNum(a[3], 0)
+    };
+    const content = a[4] == null ? '' : String(a[4]);
+    if (a[5] === 1) node.html = content;
+    else node.text = content;
+    if (a[6]) node.bgColor = String(a[6]);
+    if (a[7]) node.textColor = String(a[7]);
+    if (a[8] != null) node.width = shareNum(a[8], null);
+    if (a[9] != null) node.height = shareNum(a[9], null);
+    if (a[10]) node.parentGroupId = String(a[10]);
+    if (a[11] && typeof a[11] === 'object') node.metadata = a[11];
+    return node;
+}
+
+function expandShareConnection(a) {
+    if (!Array.isArray(a) || a[0] == null || a[0] === '' || a[1] == null || a[1] === '') return null;
+    return {
+        from: String(a[0]),
+        to: String(a[1]),
+        type: a[2] === 'd' ? 'dependency' : 'sequence',
+        style: a[3] === 'c' ? 'curved' : (a[3] === 'o' ? 'orthogonal' : 'straight'),
+        label: a[4] == null ? '' : String(a[4])
+    };
+}
+
+function expandShareTable(a) {
+    if (!Array.isArray(a) || a[0] == null || a[0] === '') return null;
+    const table = {
+        id: String(a[0]),
+        x: shareNum(a[1], 0),
+        y: shareNum(a[2], 0),
+        html: a[3] == null ? '' : String(a[3])
+    };
+    if (a[4]) table.bgColor = String(a[4]);
+    if (a[5]) table.textColor = String(a[5]);
+    if (a[6] === 1) table.filtersEnabled = true;
+    if (Array.isArray(a[7])) table.filters = a[7];
+    if (a[8] && typeof a[8] === 'object') table.sortState = a[8];
+    return table;
+}
+
+// Expands a compact v2 payload back to the verbose export shape.
+// Returns null when the payload is malformed.
+function expandCompactGraph(d) {
+    if (!d || typeof d !== 'object' || !Array.isArray(d.n) || !Array.isArray(d.l)) return null;
+    const nodes = d.n.map(expandShareNode).filter(Boolean);
+    const connections = d.l.map(expandShareConnection).filter(Boolean);
+    if ((d.n.length > 0 && nodes.length === 0) || (d.l.length > 0 && connections.length === 0)) return null;
+    const data = { nodes, connections };
+    if (Array.isArray(d.b)) {
+        const tables = d.b.map(expandShareTable).filter(Boolean);
+        if (d.b.length > 0 && tables.length === 0) return null;
+        data.tables = tables;
+    }
+    if (Array.isArray(d.cam) && d.cam.length === 3
+        && Number.isFinite(Number(d.cam[0])) && Number.isFinite(Number(d.cam[1]))
+        && Number.isFinite(Number(d.cam[2])) && Number(d.cam[2]) > 0) {
+        data.camera = { panX: Number(d.cam[0]), panY: Number(d.cam[1]), zoom: Number(d.cam[2]) };
+    }
+    if (Array.isArray(d.cs)) data.collapsedSequenceNodes = d.cs.filter(id => typeof id === 'string');
+    if (Array.isArray(d.cd)) data.collapsedDependencyNodes = d.cd.filter(id => typeof id === 'string');
+    return data;
+}
+
+// Accepts both the v2 compact wrapper { v:2, t, d } and the legacy v1/verbose
+// forms ({ v:1, title, data } or a raw graph payload). Returns
+// { title, data } or null when there is no usable diagram.
+function parseShareWrapper(wrapper) {
+    if (!wrapper || typeof wrapper !== 'object') return null;
+    if (wrapper.v === 2 && wrapper.d) {
+        const data = expandCompactGraph(wrapper.d);
+        if (!data) return null;
+        return { title: typeof wrapper.t === 'string' ? wrapper.t : '', data };
+    }
+    const data = wrapper.data ? wrapper.data : wrapper;
+    const title = typeof wrapper.title === 'string' ? wrapper.title : '';
+    if (!isValidShareGraphData(data)) return null;
+    return { title, data };
 }
 
 // Read the encoded share token from `#d=...` (primary) or `?d=...` (fallback).
@@ -174,22 +376,33 @@ async function copyShareLinkToClipboard() {
     if (typeof hideAlignMenu === 'function') hideAlignMenu();
     try {
         if (typeof getGraphExportPayload !== 'function') throw new Error('Export unavailable.');
-        const wrapper = {
-            v: SHARE_PAYLOAD_VERSION,
-            title: typeof activeDocumentTitle === 'string' ? activeDocumentTitle : '',
-            data: getGraphExportPayload()
-        };
+        const title = typeof activeDocumentTitle === 'string' ? activeDocumentTitle : '';
+        const wrapper = { v: 2, d: compactGraphForShare(getGraphExportPayload()) };
+        if (title.trim()) wrapper.t = title.trim().slice(0, 120);
         const encoded = await encodeSharePayloadText(JSON.stringify(wrapper));
         const url = buildShareUrl(encoded);
         try {
             window.history?.replaceState(null, '', url);
         } catch (err) {}
-        await writeTextToClipboard(url);
+        let copied = false;
+        try {
+            await writeTextToClipboard(url);
+            copied = true;
+        } catch (err) {}
         const kb = (url.length / 1024).toFixed(1);
-        if (url.length > 100000) {
-            showToast(`Share link copied (${kb} KB) — very long links may fail in some browsers.`, 'warning', 5000);
+        const sizeNote = `(${kb} KB)`;
+        if (copied) {
+            if (url.length > 100000) {
+                showToast(`Share link copied ${sizeNote} — very long links may fail in some browsers.`, 'warning', 5000);
+            } else {
+                showToast(`Share link copied ${sizeNote} — opening it loads this diagram.`, 'success', 4000);
+            }
+        } else if (typeof showModalPrompt === 'function') {
+            // Clipboard API unavailable (permissions, insecure context): let the
+            // user copy the link manually. It is also in the address bar.
+            await showModalPrompt({ title: `Copy your share link ${sizeNote}`, defaultValue: url, confirmLabel: 'Done' });
         } else {
-            showToast(`Share link copied (${kb} KB) — opening it loads this diagram.`, 'success', 4000);
+            showToast(`Sharing ready ${sizeNote} — copy the link from the address bar.`, 'info', 6000);
         }
         return url;
     } catch (err) {
@@ -220,17 +433,19 @@ async function loadSharedGraphFromUrl(options = {}) {
     } catch (err) {
         wrapper = null;
     }
-    // Accept both the wrapped form { v, title, data } and a raw graph payload.
-    const data = wrapper && wrapper.data ? wrapper.data : wrapper;
-    const title = wrapper && typeof wrapper.title === 'string' ? wrapper.title.trim().slice(0, 120) : '';
-    if (!isValidShareGraphData(data)) {
+    // Accept the v2 compact wrapper, the legacy v1 wrapper, and raw payloads.
+    const parsed = typeof parseShareWrapper === 'function' ? parseShareWrapper(wrapper) : null;
+    if (!parsed) {
         if (stripHash) clearShareTokenFromUrl();
         showToast('This share link has no diagram data. Loaded your saved diagram instead.', 'error', 5000);
         return false;
     }
-    if (title && typeof updateDocHeaderUI === 'function') {
+    const data = parsed.data;
+    const title = parsed.title;
+    const cleanTitle = String(title || '').trim().slice(0, 120);
+    if (cleanTitle && typeof updateDocHeaderUI === 'function') {
         try {
-            activeDocumentTitle = title;
+            activeDocumentTitle = cleanTitle;
             updateDocHeaderUI();
         } catch (err) {}
     }
