@@ -332,46 +332,58 @@ async function openDiagramsModal() {
 
     const header = document.createElement('div');
     header.className = 'modal-title';
-    header.style.display = 'flex';
-    header.style.justifyContent = 'space-between';
-    header.style.alignItems = 'center';
-    header.innerHTML = `<span>My Diagrams</span><button type="button" class="mini-btn new-doc-btn" style="padding:4px 10px;font-size:12px;">+ New Diagram</button>`;
+    const headerLabel = document.createElement('span');
+    headerLabel.textContent = 'My Diagrams';
+    const newDocBtn = document.createElement('button');
+    newDocBtn.type = 'button';
+    newDocBtn.className = 'mini-btn new-doc-btn';
+    newDocBtn.textContent = '+ New Diagram';
+    header.appendChild(headerLabel);
+    header.appendChild(newDocBtn);
 
     const list = document.createElement('div');
     list.className = 'diagrams-list';
-    list.style.display = 'flex';
-    list.style.flexDirection = 'column';
-    list.style.gap = '8px';
-    list.style.maxHeight = '320px';
-    list.style.overflowY = 'auto';
-    list.style.marginTop = '12px';
 
     allDocs.forEach(doc => {
         const item = document.createElement('div');
         item.className = `diagram-item${doc.id === activeDocumentId ? ' active' : ''}`;
-        item.style.display = 'flex';
-        item.style.alignItems = 'center';
-        item.style.justifyContent = 'space-between';
-        item.style.padding = '10px 12px';
-        item.style.borderRadius = '10px';
-        item.style.border = '1px solid var(--grid-color, #e2e8f0)';
-        item.style.background = doc.id === activeDocumentId ? 'rgba(99, 102, 241, 0.08)' : 'transparent';
 
         const info = document.createElement('div');
-        info.style.cursor = 'pointer';
-        info.style.flex = '1';
-        info.innerHTML = `
-            <div style="font-weight:600;font-size:13px;color:var(--text-color);">${doc.title || 'Untitled'} ${doc.id === activeDocumentId ? '<span style="color:var(--primary);font-size:11px;font-weight:700;">(Current)</span>' : ''}</div>
-            <div style="font-size:11px;color:#64748b;margin-top:2px;">${doc.nodeCount || 0} nodes • ${new Date(doc.updatedAt || Date.now()).toLocaleDateString()}</div>
-        `;
+        info.className = 'diagram-info';
+        info.setAttribute('role', 'button');
+        info.setAttribute('tabindex', '0');
+        info.title = doc.title || 'Untitled';
+
+        const nameRow = document.createElement('div');
+        nameRow.className = 'diagram-name';
+        nameRow.textContent = doc.title || 'Untitled';
+        if (doc.id === activeDocumentId) {
+            const currentBadge = document.createElement('span');
+            currentBadge.className = 'diagram-current';
+            currentBadge.textContent = '(Current)';
+            nameRow.appendChild(currentBadge);
+        }
+
+        const metaRow = document.createElement('div');
+        metaRow.className = 'diagram-meta';
+        metaRow.textContent = `${doc.nodeCount || 0} nodes • ${new Date(doc.updatedAt || Date.now()).toLocaleDateString()}`;
+
+        info.appendChild(nameRow);
+        info.appendChild(metaRow);
         info.addEventListener('click', () => {
             closeDiagramsModal();
             if (doc.id !== activeDocumentId) switchDiagram(doc.id);
         });
+        info.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                closeDiagramsModal();
+                if (doc.id !== activeDocumentId) switchDiagram(doc.id);
+            }
+        });
 
         const actions = document.createElement('div');
-        actions.style.display = 'flex';
-        actions.style.gap = '4px';
+        actions.className = 'diagram-actions';
 
         const dupBtn = document.createElement('button');
         dupBtn.className = 'mini-btn';
@@ -385,10 +397,9 @@ async function openDiagramsModal() {
         });
 
         const delBtn = document.createElement('button');
-        delBtn.className = 'mini-btn';
+        delBtn.className = 'mini-btn danger-btn';
         delBtn.textContent = 'Del';
         delBtn.title = 'Delete diagram';
-        delBtn.style.color = 'var(--danger, #f43f5e)';
         delBtn.addEventListener('click', async (e) => {
             e.stopPropagation();
             if (confirm(`Delete "${doc.title}"?`)) {
@@ -408,7 +419,6 @@ async function openDiagramsModal() {
 
     const footer = document.createElement('div');
     footer.className = 'modal-actions';
-    footer.style.marginTop = '16px';
     const closeBtn = document.createElement('button');
     closeBtn.className = 'modal-btn modal-btn-primary';
     closeBtn.type = 'button';
@@ -416,7 +426,7 @@ async function openDiagramsModal() {
     closeBtn.addEventListener('click', closeDiagramsModal);
     footer.appendChild(closeBtn);
 
-    header.querySelector('.new-doc-btn').addEventListener('click', async () => {
+    newDocBtn.addEventListener('click', async () => {
         closeDiagramsModal();
         const title = prompt('Enter diagram name:', 'Untitled Diagram');
         if (title !== null) await createNewDiagram(title);

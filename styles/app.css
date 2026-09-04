@@ -278,7 +278,7 @@
             opacity: 0.88;
             pointer-events: none;
         }
-        button:hover:not(.save-menu-btn):not(.layout-btn):not(.icon-btn):not(.mini-btn) {
+        button:hover:not(.save-menu-btn):not(.layout-btn):not(.icon-btn):not(.mini-btn):not(.modal-btn):not(.toast-close):not(.doc-menu-btn) {
             background:
                 linear-gradient(180deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.18)),
                 rgba(255, 255, 255, 0.24);
@@ -287,11 +287,16 @@
                 inset 0 1px 0 rgba(255, 255, 255, 0.9),
                 0 4px 12px rgba(15, 23, 42, 0.08);
         }
-        button:active:not(.save-menu-btn):not(.layout-btn):not(.icon-btn):not(.mini-btn) {
+        button:active:not(.save-menu-btn):not(.layout-btn):not(.icon-btn):not(.mini-btn):not(.modal-btn):not(.toast-close):not(.doc-menu-btn) {
             transform: scale(0.97);
             background:
                 linear-gradient(180deg, rgba(255, 255, 255, 0.48), rgba(255, 255, 255, 0.16)),
                 rgba(255, 255, 255, 0.2);
+        }
+        /* Solid-surface buttons must not inherit the glass gloss overlay. */
+        .modal-btn::before,
+        .toast-close::before {
+            content: none;
         }
         .icon-btn {
             padding: 10px; border-radius: 50%; width: 40px; height: 40px;
@@ -2207,6 +2212,10 @@
     font-size: 12px;
     padding: 2px 4px;
     border-radius: 6px;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    min-width: 0;
 }
 .toast-close:hover {
     background: rgba(15, 23, 42, 0.08);
@@ -2276,6 +2285,11 @@
     justify-content: flex-end;
     gap: 8px;
 }
+/* Footers placed directly under the dialog (not inside .modal-form)
+   still need dialog padding so buttons don't sit flush to the edge. */
+.modal-dialog > .modal-actions {
+    padding: 12px 20px 16px;
+}
 .modal-btn {
     padding: 7px 16px;
     border-radius: 10px;
@@ -2286,9 +2300,14 @@
     color: var(--text-color);
     cursor: pointer;
     transition: background 0.15s ease;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
 }
 .modal-btn:hover {
     background: #f1f5f9;
+}
+.modal-btn:active {
+    transform: scale(0.97);
 }
 .modal-btn-primary {
     background: var(--primary);
@@ -2297,6 +2316,105 @@
 }
 .modal-btn-primary:hover {
     background: #4f46e5;
+}
+
+/* ===== My Diagrams dialog ===== */
+.diagrams-dialog {
+    width: min(480px, calc(100vw - 48px));
+    display: flex;
+    flex-direction: column;
+    max-height: min(80vh, 640px);
+}
+.diagrams-dialog .modal-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 4px;
+}
+.diagrams-dialog .modal-title > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.new-doc-btn {
+    height: 32px;
+    min-width: 0;
+    padding: 4px 12px;
+    font-size: 12px;
+    border-radius: 10px;
+    flex-shrink: 0;
+}
+.diagrams-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 320px;
+    overflow-y: auto;
+    padding: 12px 20px 4px;
+    margin: 0;
+}
+.diagram-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid #e2e8f0;
+    background: transparent;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.diagram-item:hover {
+    border-color: #cbd5e1;
+    background: #f8fafc;
+}
+.diagram-item.active {
+    border-color: rgba(99, 102, 241, 0.45);
+    background: rgba(99, 102, 241, 0.08);
+}
+.diagram-info {
+    flex: 1 1 auto;
+    min-width: 0;
+    cursor: pointer;
+}
+.diagram-name {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--text-color);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.diagram-current {
+    color: var(--primary);
+    font-size: 11px;
+    font-weight: 700;
+    margin-left: 6px;
+    white-space: nowrap;
+}
+.diagram-meta {
+    font-size: 11px;
+    color: #64748b;
+    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.diagram-actions {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+}
+.diagram-actions .mini-btn {
+    height: 30px;
+    min-width: 0;
+    padding: 4px 10px;
+    font-size: 11px;
+}
+.diagram-actions .danger-btn {
+    color: var(--danger, #f43f5e);
 }
 @keyframes modal-fade-in {
     from { opacity: 0; }
@@ -2554,6 +2672,16 @@ body.connect-mode-active #canvas-viewport {
     transform: translateY(-1px);
 }
 
+.doc-menu-btn:active {
+    transform: scale(0.97);
+}
+
+/* Keep the label above the global glass gloss layer. */
+.doc-menu-btn > span {
+    position: relative;
+    z-index: 1;
+}
+
 .doc-app-name {
     font-weight: 700;
     letter-spacing: -0.01em;
@@ -2804,6 +2932,57 @@ body.theme-dark .node-resize-handle {
         #1e293b;
     border-color: rgba(255, 255, 255, 0.2);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+body.theme-dark .modal-dialog,
+body.theme-dark .help-panel {
+    background: #1e293b;
+    border-color: rgba(255, 255, 255, 0.12);
+    color: #f1f5f9;
+}
+
+body.theme-dark .modal-input {
+    background: #0f172a;
+    border-color: #334155;
+    color: #f1f5f9;
+}
+
+body.theme-dark .modal-btn {
+    background: #0f172a;
+    border-color: #334155;
+    color: #f1f5f9;
+}
+
+body.theme-dark .modal-btn:hover {
+    background: #1e293b;
+}
+
+body.theme-dark .modal-btn-primary {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #0b0f19;
+}
+
+body.theme-dark .modal-btn-primary:hover {
+    background: #a5b4fc;
+}
+
+body.theme-dark .diagram-item {
+    border-color: #334155;
+}
+
+body.theme-dark .diagram-item:hover {
+    border-color: #475569;
+    background: rgba(255, 255, 255, 0.04);
+}
+
+body.theme-dark .diagram-item.active {
+    border-color: rgba(129, 140, 248, 0.55);
+    background: rgba(129, 140, 248, 0.12);
+}
+
+body.theme-dark .diagram-meta {
+    color: #94a3b8;
 }
 
 
