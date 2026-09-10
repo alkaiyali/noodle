@@ -450,7 +450,10 @@ async function loadSharedGraphFromUrl(options = {}) {
         } catch (err) {}
     }
     if (typeof restoreGraphPayload !== 'function') return false;
-    restoreGraphPayload(data, true);
+    // A shared link carries the sender's viewport; ignore any locally stored
+    // camera for this document and stamp it as the current camera afterwards.
+    restoreGraphPayload(data, true, { applyStoredCamera: false });
+    if (typeof persistCameraNow === 'function') persistCameraNow();
     if (stripHash) clearShareTokenFromUrl();
     showToast('Loaded the shared diagram from the link.', 'success', 4000);
     return true;

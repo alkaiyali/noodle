@@ -86,7 +86,13 @@ var undoStack = [];
 var redoStack = [];
 var isRestoringHistory = false;
 var AUTO_SAVE_STORAGE_KEY = 'graph-autosave-v1';
+// localStorage is only a fast crash-recovery mirror of IndexedDB. Diagrams
+// above this serialized size (e.g. embedded base64 images) skip the mirror so
+// they can never exhaust the ~5MB localStorage quota.
+var LOCAL_AUTOSAVE_MIRROR_LIMIT = 1.5 * 1024 * 1024;
+var CAMERA_STORAGE_KEY_PREFIX = 'noodle-camera-v1:';
 var autosaveTimer = null;
+var cameraSaveTimer = null;
 
 var panX = 0;
 var panY = 0;
@@ -106,7 +112,52 @@ var pendingTableEditContext = null;
         bgGrid.style.transform = transformStr;
         const zoomLabel = document.getElementById('zoomLevelBtn');
         if (zoomLabel) zoomLabel.textContent = `${Math.round(zoom * 100)}%`;
-        scheduleAutosave();
+        // Panning/zooming only touches the camera: keep it out of the full
+        // diagram autosave and persist it under a tiny per-document key.
+        scheduleCameraSave();
+    }
+
+    function getCameraStorageKey() {
+        const docId = typeof activeDocumentId === 'string' && activeDocumentId ? activeDocumentId : 'default';
+        return CAMERA_STORAGE_KEY_PREFIX + docId;
+    }
+
+    function getPersistedCamera() {
+        try {
+            const raw = window.localStorage?.getItem(getCameraStorageKey());
+            if (!raw) return null;
+            const parsed = JSON.parse(raw);
+            if (!parsed || !Number.isFinite(parsed.panX) || !Number.isFinite(parsed.panY) || !Number.isFinite(parsed.zoom)) return null;
+            return {
+                panX: parsed.panX,
+                panY: parsed.panY,
+                zoom: parsed.zoom,
+                at: Number.isFinite(parsed.at) ? parsed.at : 0
+            };
+        } catch (err) {
+            return null;
+        }
+    }
+
+    function persistCameraNow() {
+        if (cameraSaveTimer) {
+            clearTimeout(cameraSaveTimer);
+            cameraSaveTimer = null;
+        }
+        try {
+            window.localStorage?.setItem(getCameraStorageKey(), JSON.stringify({
+                panX, panY, zoom, at: Date.now()
+            }));
+        } catch (err) {}
+    }
+
+    function scheduleCameraSave(delay = 250) {
+        if (!window.localStorage) return;
+        if (cameraSaveTimer) clearTimeout(cameraSaveTimer);
+        cameraSaveTimer = window.setTimeout(() => {
+            cameraSaveTimer = null;
+            persistCameraNow();
+        }, delay);
     }
 
     function resetZoom() {
@@ -631,7 +682,7 @@ var pendingTableEditContext = null;
     function getGraphExportPayload() {
         return {
             ...getPersistedGraphData(),
-            camera: { panX, panY, zoom }
+            camera: { panX, panY, zoom, at: Date.now() }
         };
     }
 
@@ -679,17 +730,26 @@ var pendingTableEditContext = null;
             autosaveTimer = null;
         }
         const payload = getGraphExportPayload();
+        let serialized = '';
         try {
-            window.localStorage?.setItem(AUTO_SAVE_STORAGE_KEY, JSON.stringify(payload));
+            serialized = JSON.stringify(payload);
+        } catch (err) {}
+        try {
+            if (window.localStorage && serialized && serialized.length <= LOCAL_AUTOSAVE_MIRROR_LIMIT) {
+                window.localStorage.setItem(AUTO_SAVE_STORAGE_KEY, serialized);
+            } else if (window.localStorage) {
+                // Too large for the localStorage mirror; IndexedDB keeps it.
+                window.localStorage.removeItem(AUTO_SAVE_STORAGE_KEY);
+            }
             setAutosaveStatus('Saved');
+            persistCameraNow();
         } catch (err) {
-            const quotaExceeded = err?.name === 'QuotaExceededError'
-                || err?.code === 22
-                || err?.code === 1014
-                || /quota/i.test(String(err?.message || err?.name || ''));
-            if (quotaExceeded && !autosaveQuotaWarningShown) {
+            // Quota or private-mode failure: drop the mirror, IndexedDB still has it.
+            try { window.localStorage?.removeItem(AUTO_SAVE_STORAGE_KEY); } catch (removeErr) {}
+            setAutosaveStatus('Saved');
+            if (!autosaveQuotaWarningShown) {
                 autosaveQuotaWarningShown = true;
-                showToast('Autosave notice: localStorage is full. Your diagram is safely backed up in IndexedDB.', 'info', 5000);
+                showToast('Local storage is full — autosave continues in IndexedDB.', 'info', 5000);
             }
         }
         if (typeof saveActiveDiagramState === 'function') {
@@ -772,12 +832,21 @@ var pendingTableEditContext = null;
         updateHistoryButtons();
     }
 
-    function restoreGraphPayload(payload, resetHistory = false) {
+    function restoreGraphPayload(payload, resetHistory = false, options = {}) {
         const normalizedPayload = normalizePersistedGraphPositions(payload);
-        if (normalizedPayload.camera) {
-            panX = normalizedPayload.camera.panX || 0;
-            panY = normalizedPayload.camera.panY || 0;
-            zoom = normalizedPayload.camera.zoom || 1;
+        const storedCamera = options.applyStoredCamera === false ? null : getPersistedCamera();
+        const payloadCamera = normalizedPayload.camera;
+        // Per-document camera beats a stale payload camera unless the payload
+        // is newer (e.g. a diagram saved from another tab or device).
+        if (storedCamera && (!payloadCamera || !Number.isFinite(Number(payloadCamera.at)) || storedCamera.at >= Number(payloadCamera.at))) {
+            panX = storedCamera.panX;
+            panY = storedCamera.panY;
+            zoom = clampZoomValue(storedCamera.zoom);
+            updateTransform();
+        } else if (payloadCamera) {
+            panX = payloadCamera.panX || 0;
+            panY = payloadCamera.panY || 0;
+            zoom = payloadCamera.zoom || 1;
             updateTransform();
         }
 

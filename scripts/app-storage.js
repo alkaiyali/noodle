@@ -10,6 +10,52 @@ var activeDocumentId = 'default';
 var activeDocumentTitle = 'My Diagram';
 var dbInstance = null;
 
+// All IndexedDB writes funnel through this chain so overlapping autosaves can
+// never complete out of order (last call always wins).
+var storageWriteQueue = Promise.resolve();
+
+function queueStorageWrite(task) {
+    storageWriteQueue = storageWriteQueue.then(task, task);
+    return storageWriteQueue;
+}
+
+// ===== Cross-tab coordination =====
+// BroadcastChannel tells the other tabs when this one saves the active diagram.
+// Two tabs editing the same document would otherwise silently overwrite each
+// other; we warn on the receiving side instead of merging.
+var STORAGE_SYNC_CHANNEL_NAME = 'noodle-storage-sync';
+var storageSyncChannel = null;
+var lastForeignSaveWarningAt = 0;
+var TAB_ID = 'tab_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+function initStorageSync() {
+    if (storageSyncChannel || typeof BroadcastChannel === 'undefined') return;
+    try {
+        storageSyncChannel = new BroadcastChannel(STORAGE_SYNC_CHANNEL_NAME);
+    } catch (err) {
+        storageSyncChannel = null;
+        return;
+    }
+    storageSyncChannel.addEventListener('message', (event) => {
+        const message = event.data || {};
+        if (message.tabId === TAB_ID || message.type !== 'doc-saved') return;
+        if (message.docId !== activeDocumentId) return;
+        const now = Date.now();
+        if (now - lastForeignSaveWarningAt < 30000) return;
+        lastForeignSaveWarningAt = now;
+        if (typeof showToast === 'function') {
+            showToast('Another tab is editing this diagram. Edits may overwrite each other — use one tab per diagram.', 'warning', 7000);
+        }
+    });
+}
+
+function notifyStorageSyncSaved(docId) {
+    if (!storageSyncChannel) return;
+    try {
+        storageSyncChannel.postMessage({ type: 'doc-saved', docId, tabId: TAB_ID, at: Date.now() });
+    } catch (err) {}
+}
+
 function openDiagramsDB() {
     if (dbInstance) return Promise.resolve(dbInstance);
     return new Promise((resolve) => {
@@ -37,6 +83,7 @@ function openDiagramsDB() {
 }
 
 async function initDocumentStorage() {
+    initStorageSync();
     const savedActiveId = window.localStorage?.getItem(ACTIVE_DOC_KEY);
     if (savedActiveId) activeDocumentId = savedActiveId;
 
@@ -169,7 +216,7 @@ function deleteDiagramFromDB(id) {
 
 async function saveActiveDiagramState(payload) {
     if (!payload) return;
-    const nodeCount = payload.nodes ? Object.keys(payload.nodes).length : 0;
+    const nodeCount = Array.isArray(payload.nodes) ? payload.nodes.length : 0;
     const doc = {
         id: activeDocumentId,
         title: activeDocumentTitle,
@@ -177,11 +224,21 @@ async function saveActiveDiagramState(payload) {
         nodeCount,
         data: payload
     };
-    await putDiagramInDB(doc);
+    await queueStorageWrite(() => putDiagramInDB(doc));
     try {
         window.localStorage?.setItem(ACTIVE_DOC_KEY, activeDocumentId);
-        window.localStorage?.setItem('graph-autosave-v1', JSON.stringify(payload));
     } catch (e) {}
+    notifyStorageSyncSaved(activeDocumentId);
+}
+
+// IndexedDB is the source of truth on boot; the localStorage mirror is only a
+// fallback for older sessions and quota-constrained browsers.
+async function restoreActiveDocumentFromStore() {
+    if (typeof getDiagramFromDB !== 'function' || typeof restoreGraphPayload !== 'function') return false;
+    const doc = await getDiagramFromDB(activeDocumentId);
+    if (!doc || !doc.data || !Array.isArray(doc.data.nodes) || !Array.isArray(doc.data.connections)) return false;
+    restoreGraphPayload(doc.data, true);
+    return true;
 }
 
 async function switchDiagram(id) {
