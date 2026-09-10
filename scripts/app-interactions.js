@@ -1960,7 +1960,9 @@
                 delete tables[id];
             });
             clearSelection(); updateVisibility(); saveHistoryState();
-            showToast(`Deleted ${deletedCount} item${deletedCount === 1 ? '' : 's'} — Ctrl+Z to undo`, 'info', 3500);
+            showToast(`Deleted ${deletedCount} item${deletedCount === 1 ? '' : 's'}`, 'info', 6000, {
+                action: { label: 'Undo', onClick: () => undoHistory() }
+            });
         } else if (selectedConnectionIndexes.size > 0) {
             finishConnectionLabelEditing(true, true);
             const deletedConnectionCount = selectedConnectionIndexes.size;
@@ -1968,7 +1970,9 @@
                 if (connections[index]) connections.splice(index, 1);
             });
             clearSelection(); updateVisibility(); saveHistoryState();
-            showToast(`Deleted ${deletedConnectionCount} connection${deletedConnectionCount === 1 ? '' : 's'} — Ctrl+Z to undo`, 'info', 3500);
+            showToast(`Deleted ${deletedConnectionCount} connection${deletedConnectionCount === 1 ? '' : 's'}`, 'info', 6000, {
+                action: { label: 'Undo', onClick: () => undoHistory() }
+            });
         }
     }
 

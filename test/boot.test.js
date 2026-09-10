@@ -314,6 +314,45 @@ function ok(message) {
         else ok('manual node resize reset to auto size works');
     }
 
+    // Toast action button (Undo affordance)
+    let actionClicks = 0;
+    const actionToast = window.showToast('Action toast test', 'info', 4000, {
+        action: { label: 'Undo', onClick: () => { actionClicks += 1; } }
+    });
+    const actionBtn = actionToast && actionToast.querySelector('.toast-action');
+    if (!actionBtn || actionBtn.textContent !== 'Undo') fail('toast action button did not render');
+    else {
+        actionBtn.click();
+        await new Promise(resolve => setTimeout(resolve, 500));
+        if (actionClicks !== 1) fail(`toast action fired ${actionClicks} times`);
+        else if (actionToast.isConnected) fail('toast action did not dismiss the toast');
+        else ok('toast action button fires and dismisses');
+    }
+
+    // Camera persistence is separate from the diagram autosave
+    if (typeof window.persistCameraNow !== 'function' || typeof window.getPersistedCamera !== 'function') fail('camera persistence helpers missing');
+    else {
+        window.panX = 321; window.panY = 123; window.zoom = 1.4;
+        window.persistCameraNow();
+        const camera = window.getPersistedCamera();
+        if (!camera || camera.panX !== 321 || camera.panY !== 123 || camera.zoom !== 1.4) fail('camera was not persisted per document');
+        else ok('camera persists under its own storage key');
+        window.persistAutosaveNow();
+        const payloadCamera = window.getGraphExportPayload().camera;
+        if (!payloadCamera || !Number.isFinite(payloadCamera.at)) fail('export payload camera missing timestamp');
+        else ok('export payload carries a timestamped camera');
+    }
+
+    // IndexedDB-backed restore helper is wired up
+    if (typeof window.restoreActiveDocumentFromStore !== 'function') fail('restoreActiveDocumentFromStore is not defined');
+    else {
+        window.persistAutosaveNow();
+        await new Promise(resolve => setTimeout(resolve, 50));
+        const restored = await window.restoreActiveDocumentFromStore();
+        if (!restored) fail('restoreActiveDocumentFromStore did not restore the autosaved graph');
+        else ok('restoreActiveDocumentFromStore restores the stored document');
+    }
+
     console.log(process.exitCode ? '\nSMOKE TEST FAILED' : '\nSMOKE TEST PASSED');
 })().catch(err => {
     console.error('FATAL:', err);

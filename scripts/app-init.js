@@ -189,17 +189,30 @@ setSnapToGridEnabled(isSnapToGridEnabled());
 if (typeof getSavedTheme === 'function' && typeof applyTheme === 'function') {
     applyTheme(getSavedTheme());
 }
+var documentStorageReady = null;
 if (typeof initDocumentStorage === 'function') {
-    initDocumentStorage().catch(() => {});
+    documentStorageReady = initDocumentStorage().catch(() => {});
 }
 
 async function bootInitialGraphContent() {
     // Shared links win over local content; with no share token in the URL the
-    // default localStorage autosave loads as before.
+    // stored session loads next.
     try {
         if (typeof getShareEncodedFromUrl === 'function' && getShareEncodedFromUrl()
             && typeof loadSharedGraphFromUrl === 'function') {
             if (await loadSharedGraphFromUrl()) return true;
+        }
+    } catch (err) {}
+
+    // Wait for the document manager so activeDocumentId is resolved before we
+    // read IndexedDB, then fall back to the legacy localStorage mirror.
+    if (documentStorageReady) {
+        try { await documentStorageReady; } catch (err) {}
+    }
+    try {
+        if (typeof restoreActiveDocumentFromStore === 'function' && await restoreActiveDocumentFromStore()) {
+            showToast('Restored your last session.', 'success', 4000);
+            return true;
         }
     } catch (err) {}
     const restoredFromAutosave = loadAutosavedGraph();
@@ -250,5 +263,50 @@ function updateFullscreenUI() {
 document.addEventListener('fullscreenchange', updateFullscreenUI);
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-    navigator.serviceWorker.register('sw.js').catch(function () {});
+    var serviceWorkerUpdateReload = false;
+
+    function promptServiceWorkerUpdate(registration) {
+        showToast('A new version of Noodle is ready.', 'info', 12000, {
+            action: {
+                label: 'Reload',
+                onClick: function () {
+                    serviceWorkerUpdateReload = true;
+                    if (registration.waiting) {
+                        registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+                    } else {
+                        window.location.reload();
+                    }
+                }
+            }
+        });
+    }
+
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+        if (!serviceWorkerUpdateReload) return;
+        serviceWorkerUpdateReload = false;
+        window.location.reload();
+    });
+
+    navigator.serviceWorker.register('sw.js').then(function (registration) {
+        if (registration.waiting && navigator.serviceWorker.controller) {
+            promptServiceWorkerUpdate(registration);
+        }
+        registration.addEventListener('updatefound', function () {
+            var installing = registration.installing;
+            if (!installing) return;
+            installing.addEventListener('statechange', function () {
+                if (installing.state === 'installed' && navigator.serviceWorker.controller) {
+                    promptServiceWorkerUpdate(registration);
+                }
+            });
+        });
+    }).catch(function () {});
 }
+
+window.addEventListener('offline', function () {
+    showToast('You are offline — Noodle keeps working and saves locally.', 'info', 5000);
+});
+
+window.addEventListener('online', function () {
+    showToast("You're back online.", 'success', 3000);
+});

@@ -278,7 +278,7 @@
             opacity: 0.88;
             pointer-events: none;
         }
-        button:hover:not(.save-menu-btn):not(.layout-btn):not(.icon-btn):not(.mini-btn):not(.modal-btn):not(.toast-close):not(.doc-menu-btn) {
+        button:hover:not(.save-menu-btn):not(.layout-btn):not(.icon-btn):not(.mini-btn):not(.modal-btn):not(.toast-close):not(.doc-menu-btn):not(.toast-action):not(.swatch) {
             background:
                 linear-gradient(180deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.18)),
                 rgba(255, 255, 255, 0.24);
@@ -287,7 +287,7 @@
                 inset 0 1px 0 rgba(255, 255, 255, 0.9),
                 0 4px 12px rgba(15, 23, 42, 0.08);
         }
-        button:active:not(.save-menu-btn):not(.layout-btn):not(.icon-btn):not(.mini-btn):not(.modal-btn):not(.toast-close):not(.doc-menu-btn) {
+        button:active:not(.save-menu-btn):not(.layout-btn):not(.icon-btn):not(.mini-btn):not(.modal-btn):not(.toast-close):not(.doc-menu-btn):not(.toast-action):not(.swatch) {
             transform: scale(0.97);
             background:
                 linear-gradient(180deg, rgba(255, 255, 255, 0.48), rgba(255, 255, 255, 0.16)),
@@ -295,7 +295,9 @@
         }
         /* Solid-surface buttons must not inherit the glass gloss overlay. */
         .modal-btn::before,
-        .toast-close::before {
+        .toast-close::before,
+        .toast-action::before,
+        .swatch::before {
             content: none;
         }
         .icon-btn {
@@ -675,7 +677,12 @@
             border: 2px solid rgba(255, 255, 255, 0.44); transition: transform 0.1s, border-color 0.1s, box-shadow 0.1s;
             box-shadow: 0 6px 14px rgba(148, 163, 184, 0.16);
             flex-shrink: 0;
+            padding: 0;
+            appearance: none;
+            -webkit-appearance: none;
+            background-clip: padding-box;
         }
+        .swatch:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
         .swatch:hover { transform: scale(1.15); }
         .swatch.active { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.16), 0 8px 18px rgba(99, 102, 241, 0.16); }
 
@@ -2220,6 +2227,29 @@
 .toast-close:hover {
     background: rgba(15, 23, 42, 0.08);
     color: var(--text-color);
+}
+.toast-action {
+    flex: none;
+    border: 1px solid var(--glass-stroke);
+    background: rgba(99, 102, 241, 0.12);
+    color: var(--primary);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 8px;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    min-width: 0;
+    white-space: nowrap;
+}
+.toast-action:hover {
+    background: rgba(99, 102, 241, 0.2);
+}
+.toast-action:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
 }
 @keyframes toast-in {
     from { opacity: 0; transform: translateY(-8px); }

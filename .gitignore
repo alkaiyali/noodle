@@ -3,3 +3,4 @@ node_modules/
 *.log
 .playwright-mcp/
 final-check.png
+tps_*.py

@@ -1,7 +1,7 @@
 'use strict';
 
 // Bump on precache changes so old caches are purged on activate.
-var CACHE = 'noodle-v3';
+var CACHE = 'noodle-v4';
 
 var PRECACHE_URLS = [
     './',
@@ -30,8 +30,6 @@ var PRECACHE_URLS = [
 ];
 
 self.addEventListener('install', function (event) {
-    // Take over as soon as the new worker finishes precaching.
-    if (typeof self.skipWaiting === 'function') self.skipWaiting();
     event.waitUntil(
         caches.open(CACHE).then(function (cache) {
             // Cache one-by-one so a single 404 doesn't fail the whole install
@@ -46,6 +44,14 @@ self.addEventListener('install', function (event) {
             );
         })
     );
+});
+
+// The page shows an "update ready" toast and only then asks us to activate,
+// so a reload never mixes old and new asset versions.
+self.addEventListener('message', function (event) {
+    if (event.data && event.data.type === 'SKIP_WAITING' && typeof self.skipWaiting === 'function') {
+        self.skipWaiting();
+    }
 });
 
 self.addEventListener('activate', function (event) {

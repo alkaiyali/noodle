@@ -1,9 +1,13 @@
 node_modules/
 .wrangler/
 .git/
+.github/
 .omo/
+.playwright-mcp/
 test/
+docs/
 *.log
+*.py
 eslint.config.js
 package.json
 package-lock.json
