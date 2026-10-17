@@ -4,6 +4,7 @@ var viewport = document.getElementById('canvas-viewport');
 var content = document.getElementById('canvas-content');
 var bgGrid = document.getElementById('bg-grid');
 var svgLayer = document.getElementById('svg-layer');
+var connectionLabelLayer = document.getElementById('connection-labels');
 var selectionBoxUI = document.getElementById('selection-box');
 var toolbarStack = document.getElementById('toolbarStack');
 var toolbar = document.getElementById('toolbar');
@@ -38,10 +39,13 @@ var DEFAULT_NODE_LABELS = {
     start: 'Start/End',
     process: 'Process',
     decision: 'Decision',
-    group: 'Group'
+    group: 'Group',
+    floatingText: 'Text',
+    database: 'Database',
+    note: 'Note',
+    document: 'Document'
 };
 var DEFAULT_CONNECTION_TYPE = 'sequence';
-DEFAULT_NODE_LABELS.floatingText = 'Text';
 var BASE_RICH_TEXT_ALLOWED_TAGS = new Set(['A', 'B', 'BR', 'DIV', 'EM', 'FONT', 'H1', 'H2', 'H3', 'I', 'IMG', 'INPUT', 'LABEL', 'LI', 'OL', 'P', 'S', 'SPAN', 'STRONG', 'U', 'UL']);
 var TABLE_RICH_TEXT_ALLOWED_TAGS = new Set(['TABLE', 'TBODY', 'TD', 'TH', 'THEAD', 'TR']);
 var DEFAULT_NODE_METADATA = { price: '', currency: 'USD', date: '', time: '' };
@@ -102,19 +106,176 @@ var currentMode = 'IDLE';
 var startPoint = { x: 0, y: 0 };
 var lastPoint = { x: 0, y: 0 };
 var isDragging = false;
+var isSpacePressed = false;
 var hasPanned = false;
 var pendingNodeEditId = null;
 var pendingTableEditContext = null;
 
+    var CAMERA_IDLE_MS = 150;
+    var cameraMovingTimer = null;
+    var cameraIdleAt = 0;
+    var gridFrameId = 0;
+    var ZOOM_LABEL_THROTTLE_MS = 120;
+    var zoomLabelEl = null;
+    var lastZoomLabelText = '';
+    var zoomLabelUpdatedAt = 0;
+    var zoomLabelTimer = null;
+    // Viewport size is cached (refreshed by invalidateGridSize on resize) so a
+    // camera frame never forces a layout read.
+    var gridState = { width: 0, height: 0, dpr: 0, color: '', tile: null, tileKey: '', pattern: null };
+
+    // Promote the content to its own compositor layer while the camera is
+    // moving so the browser scales a bitmap instead of re-rasterizing every
+    // node per frame; drop it once idle so text re-renders crisply. A single
+    // timer is re-armed lazily instead of cleared/recreated on every event.
+    function markCameraMoving() {
+        cameraIdleAt = performance.now() + CAMERA_IDLE_MS;
+        if (cameraMovingTimer) return;
+        content.classList.add('camera-moving');
+        const settle = () => {
+            const remaining = cameraIdleAt - performance.now();
+            if (remaining > 1) {
+                cameraMovingTimer = setTimeout(settle, remaining);
+                return;
+            }
+            cameraMovingTimer = null;
+            content.classList.remove('camera-moving');
+        };
+        cameraMovingTimer = setTimeout(settle, CAMERA_IDLE_MS);
+    }
+
+    function invalidateGridSize() {
+        gridState.width = 0;
+        scheduleGridPaint();
+    }
+
+    function invalidateGridColor() {
+        gridState.color = '';
+        gridState.tileKey = '';
+        scheduleGridPaint();
+    }
+
+    function scheduleGridPaint() {
+        if (typeof window.requestAnimationFrame !== 'function') {
+            paintGrid();
+            return;
+        }
+        if (gridFrameId) return;
+        gridFrameId = window.requestAnimationFrame(() => {
+            gridFrameId = 0;
+            paintGrid();
+        });
+    }
+
+    // The dot grid is one pattern fill on a viewport-sized canvas: a single
+    // 2x-spacing tile (one coarse dot + three fine dots on the same lattice)
+    // is rebuilt only when zoom changes, and panning just shifts the pattern.
+    // Every coarse dot coincides with a fine-lattice point. The fine dots fade
+    // out as their spacing shrinks from 24px to 12px, where the coarse layer
+    // takes over, so doubling the spacing never pops.
+    function paintGrid() {
+        if (!bgGrid || typeof bgGrid.getContext !== 'function') return;
+        const ctx = bgGrid.getContext('2d');
+        if (!ctx || typeof ctx.createPattern !== 'function') return;
+        const dpr = window.devicePixelRatio || 1;
+        if (!gridState.width || gridState.dpr !== dpr) {
+            gridState.width = viewport.clientWidth || window.innerWidth;
+            gridState.height = viewport.clientHeight || window.innerHeight;
+            gridState.dpr = dpr;
+            bgGrid.width = Math.max(1, Math.round(gridState.width * dpr));
+            bgGrid.height = Math.max(1, Math.round(gridState.height * dpr));
+            gridState.pattern = null;
+        }
+        if (!gridState.color) {
+            gridState.color = getComputedStyle(bgGrid).getPropertyValue('--grid-color').trim() || '#cbd5e1';
+        }
+
+        let step = 24 * zoom;
+        while (step < 12) step *= 2;
+        const fineAlpha = Math.min(1, (step - 12) / 12);
+        const dot = Math.min(3, Math.max(1, 1.5 * Math.sqrt(zoom)));
+        const tileCss = step * 2;
+        const tileKey = `${step}|${dot}|${dpr}|${gridState.color}`;
+        if (tileKey !== gridState.tileKey) {
+            const tile = gridState.tile || (gridState.tile = document.createElement('canvas'));
+            const tilePx = Math.max(1, Math.round(tileCss * dpr));
+            tile.width = tilePx;
+            tile.height = tilePx;
+            const tctx = tile.getContext('2d');
+            if (!tctx) return;
+            const k = tilePx / tileCss;
+            tctx.fillStyle = gridState.color;
+            tctx.beginPath();
+            tctx.arc(step / 2 * k, step / 2 * k, dot * k, 0, Math.PI * 2);
+            tctx.fill();
+            if (fineAlpha > 0) {
+                tctx.globalAlpha = fineAlpha;
+                tctx.beginPath();
+                for (const fx of [step / 2, step * 1.5]) {
+                    for (const fy of [step / 2, step * 1.5]) {
+                        if (fx === step / 2 && fy === step / 2) continue;
+                        tctx.moveTo((fx + dot) * k, fy * k);
+                        tctx.arc(fx * k, fy * k, dot * k, 0, Math.PI * 2);
+                    }
+                }
+                tctx.fill();
+            }
+            gridState.tileKey = tileKey;
+            gridState.pattern = null;
+        }
+        if (!gridState.pattern) gridState.pattern = ctx.createPattern(gridState.tile, 'repeat');
+        const pattern = gridState.pattern;
+        if (!pattern) return;
+        const ox = ((panX % tileCss) + tileCss) % tileCss;
+        const oy = ((panY % tileCss) + tileCss) % tileCss;
+        const scale = (tileCss * dpr) / gridState.tile.width;
+        if (typeof pattern.setTransform === 'function' && typeof DOMMatrix === 'function') {
+            pattern.setTransform(new DOMMatrix([scale, 0, 0, scale, ox * dpr, oy * dpr]));
+        }
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, bgGrid.width, bgGrid.height);
+        ctx.fillStyle = pattern;
+        ctx.fillRect(0, 0, bgGrid.width, bgGrid.height);
+    }
+
+    function syncZoomLabel() {
+        if (zoomLabelTimer) {
+            clearTimeout(zoomLabelTimer);
+            zoomLabelTimer = null;
+        }
+        zoomLabelUpdatedAt = performance.now();
+        if (!zoomLabelEl || !zoomLabelEl.isConnected) {
+            zoomLabelEl = document.getElementById('zoomLevelBtn');
+            lastZoomLabelText = '';
+        }
+        const zoomText = `${Math.round(zoom * 100)}%`;
+        if (zoomLabelEl && zoomText !== lastZoomLabelText) {
+            zoomLabelEl.textContent = zoomText;
+            lastZoomLabelText = zoomText;
+        }
+    }
+
+    // Any DOM repaint during a camera move makes the browser re-layerize the
+    // whole canvas, so the zoom readout updates immediately on the first
+    // change, then at most every ZOOM_LABEL_THROTTLE_MS, plus once at the end.
+    function scheduleZoomLabelUpdate() {
+        const wait = zoomLabelUpdatedAt + ZOOM_LABEL_THROTTLE_MS - performance.now();
+        if (wait <= 0) {
+            syncZoomLabel();
+        } else if (!zoomLabelTimer) {
+            zoomLabelTimer = setTimeout(syncZoomLabel, wait);
+        }
+    }
+
     function updateTransform() {
-        const transformStr = `translate(${panX}px, ${panY}px) scale(${zoom})`;
-        content.style.transform = transformStr;
-        bgGrid.style.transform = transformStr;
-        const zoomLabel = document.getElementById('zoomLevelBtn');
-        if (zoomLabel) zoomLabel.textContent = `${Math.round(zoom * 100)}%`;
+        content.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+        markCameraMoving();
+        scheduleGridPaint();
+        scheduleZoomLabelUpdate();
         // Panning/zooming only touches the camera: keep it out of the full
         // diagram autosave and persist it under a tiny per-document key.
         scheduleCameraSave();
+        if (typeof renderMinimap === 'function') renderMinimap();
     }
 
     function getCameraStorageKey() {
@@ -239,21 +400,6 @@ var pendingTableEditContext = null;
         updateTransform();
     }
 
-    function initializeToolbarButtons() {
-        const zoomOutBtn = document.querySelector('[data-action="zoom-out"]');
-        const zoomInBtn = document.querySelector('[data-action="zoom-in"]');
-
-        if (zoomOutBtn) {
-            zoomOutBtn.setAttribute('aria-label', 'Zoom Out');
-            zoomOutBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><line x1="21" x2="16.65" y1="21" y2="16.65"></line><line x1="8" x2="14" y1="11" y2="11"></line></svg>';
-        }
-
-        if (zoomInBtn) {
-            zoomInBtn.setAttribute('aria-label', 'Zoom In');
-            zoomInBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><line x1="21" x2="16.65" y1="21" y2="16.65"></line><line x1="11" x2="11" y1="8" y2="14"></line><line x1="8" x2="14" y1="11" y2="11"></line></svg>';
-        }
-    }
-
     function getDefaultNodeLabel(type) {
         return DEFAULT_NODE_LABELS[type] || 'Node';
     }
@@ -338,7 +484,10 @@ var pendingTableEditContext = null;
         process: { width: 80, height: 36 },
         decision: { width: 70, height: 70 },
         group: { width: 180, height: 120 },
-        floatingText: { width: 40, height: 24 }
+        floatingText: { width: 40, height: 24 },
+        database: { width: 80, height: 48 },
+        note: { width: 80, height: 50 },
+        document: { width: 80, height: 44 }
     };
 
     function isResizableNodeType(type = '') {
@@ -1204,27 +1353,35 @@ var pendingTableEditContext = null;
         const defs = document.createElementNS(ns, 'defs');
         const marker = document.createElementNS(ns, 'marker');
         marker.setAttribute('id', 'arrowhead');
-        marker.setAttribute('markerWidth', '10');
-        marker.setAttribute('markerHeight', '7');
-        marker.setAttribute('refX', '10');
-        marker.setAttribute('refY', '3.5');
+        marker.setAttribute('viewBox', '0 0 12 12');
+        marker.setAttribute('markerWidth', '6');
+        marker.setAttribute('markerHeight', '6');
+        marker.setAttribute('refX', '11');
+        marker.setAttribute('refY', '6');
         marker.setAttribute('orient', 'auto');
-        const poly = document.createElementNS(ns, 'polygon');
-        poly.setAttribute('points', '0 0, 10 3.5, 0 7');
+        const poly = document.createElementNS(ns, 'path');
+        poly.setAttribute('d', 'M2 2.5 L11 6 L2 9.5 L4.2 6 Z');
+        poly.setAttribute('stroke-width', '1');
+        poly.setAttribute('stroke-linejoin', 'round');
         poly.setAttribute('fill', isDarkTheme ? '#94a3b8' : '#64748b');
+        poly.setAttribute('stroke', isDarkTheme ? '#94a3b8' : '#64748b');
         marker.appendChild(poly);
         defs.appendChild(marker);
 
         const markerDanger = document.createElementNS(ns, 'marker');
         markerDanger.setAttribute('id', 'arrowhead-danger');
-        markerDanger.setAttribute('markerWidth', '10');
-        markerDanger.setAttribute('markerHeight', '7');
-        markerDanger.setAttribute('refX', '10');
-        markerDanger.setAttribute('refY', '3.5');
+        markerDanger.setAttribute('viewBox', '0 0 12 12');
+        markerDanger.setAttribute('markerWidth', '6');
+        markerDanger.setAttribute('markerHeight', '6');
+        markerDanger.setAttribute('refX', '11');
+        markerDanger.setAttribute('refY', '6');
         markerDanger.setAttribute('orient', 'auto');
-        const polyDanger = document.createElementNS(ns, 'polygon');
-        polyDanger.setAttribute('points', '0 0, 10 3.5, 0 7');
+        const polyDanger = document.createElementNS(ns, 'path');
+        polyDanger.setAttribute('d', 'M2 2.5 L11 6 L2 9.5 L4.2 6 Z');
+        polyDanger.setAttribute('stroke-width', '1');
+        polyDanger.setAttribute('stroke-linejoin', 'round');
         polyDanger.setAttribute('fill', '#f43f5e');
+        polyDanger.setAttribute('stroke', '#f43f5e');
         markerDanger.appendChild(polyDanger);
         defs.appendChild(markerDanger);
         svg.appendChild(defs);
@@ -1270,6 +1427,30 @@ var pendingTableEditContext = null;
                     const cy = n.y + item.h / 2;
                     shape = document.createElementNS(ns, 'polygon');
                     shape.setAttribute('points', `${cx},${n.y} ${n.x + item.w},${cy} ${cx},${n.y + item.h} ${n.x},${cy}`);
+                } else if (n.type === 'database') {
+                    const ry = Math.min(12, item.h * 0.18);
+                    const rx = item.w / 2;
+                    shape = document.createElementNS(ns, 'path');
+                    const pathStr = `M ${n.x} ${n.y + ry} ` +
+                        `A ${rx} ${ry} 0 0 1 ${n.x + item.w} ${n.y + ry} ` +
+                        `L ${n.x + item.w} ${n.y + item.h - ry} ` +
+                        `A ${rx} ${ry} 0 0 1 ${n.x} ${n.y + item.h - ry} Z`;
+                    shape.setAttribute('d', pathStr);
+                } else if (n.type === 'document') {
+                    const waveH = Math.min(8, item.h * 0.12);
+                    const bottomY = n.y + item.h - waveH;
+                    const halfW = item.w / 2;
+                    shape = document.createElementNS(ns, 'path');
+                    const pathStr = `M ${n.x} ${n.y} ` +
+                        `L ${n.x + item.w} ${n.y} ` +
+                        `L ${n.x + item.w} ${bottomY} ` +
+                        `Q ${n.x + item.w * 0.75} ${bottomY + waveH * 1.5} ${n.x + halfW} ${bottomY} ` +
+                        `Q ${n.x + item.w * 0.25} ${bottomY - waveH * 1.5} ${n.x} ${bottomY} Z`;
+                    shape.setAttribute('d', pathStr);
+                } else if (n.type === 'note') {
+                    const fold = 12;
+                    shape = document.createElementNS(ns, 'polygon');
+                    shape.setAttribute('points', `${n.x},${n.y} ${n.x + item.w - fold},${n.y} ${n.x + item.w},${n.y + fold} ${n.x + item.w},${n.y + item.h} ${n.x},${n.y + item.h}`);
                 } else {
                     shape = document.createElementNS(ns, 'rect');
                     shape.setAttribute('x', n.x);
@@ -1289,6 +1470,11 @@ var pendingTableEditContext = null;
                     shape.setAttribute('fill', isDarkTheme ? 'rgba(30, 41, 59, 0.4)' : 'rgba(239, 246, 255, 0.4)');
                     shape.setAttribute('stroke', isDarkTheme ? '#475569' : '#94a3b8');
                     shape.setAttribute('stroke-dasharray', '6 4');
+                } else if (n.type === 'note') {
+                    const noteDefaultFill = isDarkTheme ? '#422006' : '#fef9c3';
+                    const noteDefaultStroke = isDarkTheme ? '#713f12' : '#fde047';
+                    shape.setAttribute('fill', n.bgColor || noteDefaultFill);
+                    shape.setAttribute('stroke', isDarkTheme ? '#713f12' : noteDefaultStroke);
                 } else {
                     const defaultFill = isDarkTheme ? '#1e293b' : '#ffffff';
                     shape.setAttribute('fill', n.bgColor || defaultFill);
@@ -1296,6 +1482,28 @@ var pendingTableEditContext = null;
                 }
                 shape.setAttribute('stroke-width', '2');
                 g.appendChild(shape);
+
+                if (n.type === 'database') {
+                    const ry = Math.min(12, item.h * 0.18);
+                    const rx = item.w / 2;
+                    const topRim = document.createElementNS(ns, 'ellipse');
+                    topRim.setAttribute('cx', n.x + rx);
+                    topRim.setAttribute('cy', n.y + ry);
+                    topRim.setAttribute('rx', rx);
+                    topRim.setAttribute('ry', ry);
+                    topRim.setAttribute('fill', n.bgColor || (isDarkTheme ? '#1e293b' : '#ffffff'));
+                    topRim.setAttribute('stroke', isDarkTheme ? '#334155' : '#94a3b8');
+                    topRim.setAttribute('stroke-width', '2');
+                    g.appendChild(topRim);
+                } else if (n.type === 'note') {
+                    const fold = 12;
+                    const flap = document.createElementNS(ns, 'polygon');
+                    flap.setAttribute('points', `${n.x + item.w - fold},${n.y} ${n.x + item.w - fold},${n.y + fold} ${n.x + item.w},${n.y + fold}`);
+                    flap.setAttribute('fill', isDarkTheme ? '#ca8a04' : '#fef08a');
+                    flap.setAttribute('stroke', isDarkTheme ? '#713f12' : '#fde047');
+                    flap.setAttribute('stroke-width', '1.5');
+                    g.appendChild(flap);
+                }
 
                 const label = n.el.querySelector('.label');
                 const textContent = label ? (label.innerText || label.textContent || '').trim() : '';
@@ -1368,13 +1576,14 @@ var pendingTableEditContext = null;
         return { svg, width, height };
     }
 
-    function exportPNG() {
-        hideSaveMenu();
-        hideAlignMenu();
-        clearSelection();
+    function renderGraphToPNGBlob(callback) {
         const built = buildExportSVG();
-        if (!built) return;
+        if (!built) {
+            if (typeof callback === 'function') callback(null);
+            return;
+        }
 
+        const isDarkTheme = document.body.classList.contains('theme-dark');
         const svgString = '<?xml version="1.0" encoding="UTF-8"?>\n' + new XMLSerializer().serializeToString(built.svg);
         const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
         const url = URL.createObjectURL(blob);
@@ -1385,29 +1594,38 @@ var pendingTableEditContext = null;
             canvas.width = Math.max(1, Math.round(built.width * scale));
             canvas.height = Math.max(1, Math.round(built.height * scale));
             const ctx = canvas.getContext('2d');
-            ctx.fillStyle = '#f8fafc';
+            ctx.fillStyle = isDarkTheme ? '#090d16' : '#f8fafc';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
             URL.revokeObjectURL(url);
             canvas.toBlob((pngBlob) => {
-                if (!pngBlob) {
-                    showToast('PNG export failed.', 'error');
-                    return;
-                }
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(pngBlob);
-                a.download = 'chart.png';
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                showToast('Exported chart.png', 'success', 2500);
+                if (typeof callback === 'function') callback(pngBlob);
             }, 'image/png');
         };
         image.onerror = () => {
             URL.revokeObjectURL(url);
-            showToast('PNG export failed.', 'error');
+            if (typeof callback === 'function') callback(null);
         };
         image.src = url;
+    }
+
+    function exportPNG() {
+        hideSaveMenu();
+        hideAlignMenu();
+        clearSelection();
+        renderGraphToPNGBlob((pngBlob) => {
+            if (!pngBlob) {
+                showToast('PNG export failed.', 'error');
+                return;
+            }
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(pngBlob);
+            a.download = 'chart.png';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            showToast('Exported chart.png', 'success', 2500);
+        });
     }
 
     function appendExportTableCells(svg, tableEl, tableX, tableY, currentZoom) {
@@ -1476,6 +1694,8 @@ var pendingTableEditContext = null;
         const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
         const effectiveDark = mode === 'dark' || (mode === 'auto' && prefersDark);
         document.body.classList.toggle('theme-dark', effectiveDark);
+        invalidateGridColor();
+        if (typeof invalidateMinimapTheme === 'function') invalidateMinimapTheme();
         updateThemeUI();
         try {
             window.localStorage?.setItem(THEME_STORAGE_KEY, mode);

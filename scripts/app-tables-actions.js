@@ -33,6 +33,12 @@
         const filterControl = e.target.closest('.table-filter-btn, .table-filter-menu, .table-summary-menu');
         if (!table) return;
         pendingTableEditContext = null;
+        if (e.button === 1 || (isSpacePressed && e.button === 0)) {
+            if (typeof startCanvasPanFromPointer === 'function') {
+                startCanvasPanFromPointer(e);
+            }
+            return;
+        }
         if (e.button === 2) {
             hasPanned = false;
             if (structureHandle) {

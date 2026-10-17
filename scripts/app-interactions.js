@@ -12,6 +12,8 @@
     var nudgeHistoryPending = false;
     var nudgeHistoryClearTimer = null;
     var renderedConnectionGroups = [];
+    // Matches both the SVG connection group and its HTML label; both carry data-connection-index.
+    var CONNECTION_HIT_SELECTOR = '.connection-group, .connection-label';
     var connectionsRafId = null;
     var connectPreviewLine = null;
     var pendingRightMenuTimer = null;
@@ -59,12 +61,41 @@
         zoom = newZoom; updateTransform();
     }
 
+    // Ctrl/Cmd + wheel zoom: accumulate a target zoom and ease toward it over a
+    // few frames (anchored at the cursor) instead of jumping per wheel notch.
+    const wheelZoom = { target: 1, anchorX: 0, anchorY: 0, frame: 0, applied: null };
+
+    function stepWheelZoom() {
+        wheelZoom.frame = 0;
+        // Something else (fit, buttons, pinch) changed the zoom: abandon the animation.
+        if (zoom !== wheelZoom.applied) return;
+        const diff = Math.log(wheelZoom.target / zoom);
+        const newZoom = Math.abs(diff) < 0.002 ? wheelZoom.target : zoom * Math.exp(diff * 0.3);
+        panX = wheelZoom.anchorX - (wheelZoom.anchorX - panX) * (newZoom / zoom);
+        panY = wheelZoom.anchorY - (wheelZoom.anchorY - panY) * (newZoom / zoom);
+        zoom = newZoom;
+        wheelZoom.applied = zoom;
+        updateTransform();
+        if (zoom !== wheelZoom.target) wheelZoom.frame = requestAnimationFrame(stepWheelZoom);
+    }
+
     viewport.addEventListener('wheel', (e) => {
         e.preventDefault();
-        const newZoom = Math.min(Math.max(zoom - e.deltaY * 0.001, 0.2), 3);
-        panX = e.clientX - (e.clientX - panX) * (newZoom / zoom);
-        panY = e.clientY - (e.clientY - panY) * (newZoom / zoom);
-        zoom = newZoom; updateTransform();
+        if (e.ctrlKey || e.metaKey) {
+            // Normalize line/page deltas to pixels and cap big mouse-wheel notches.
+            const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? viewport.clientHeight : 1;
+            const delta = Math.max(-100, Math.min(100, e.deltaY * unit));
+            const base = wheelZoom.frame && zoom === wheelZoom.applied ? wheelZoom.target : zoom;
+            wheelZoom.target = clampZoomValue(base * Math.exp(-delta * 0.0015));
+            wheelZoom.anchorX = e.clientX;
+            wheelZoom.anchorY = e.clientY;
+            wheelZoom.applied = zoom;
+            if (!wheelZoom.frame) stepWheelZoom();
+        } else {
+            panX -= e.deltaX;
+            panY -= e.deltaY;
+            updateTransform();
+        }
     }, { passive: false });
 
     function clearNodeSelection() {
@@ -263,7 +294,7 @@
         const hitElement = document.elementFromPoint(clientX, clientY);
         if (ignoredElement) ignoredElement.style.pointerEvents = previousPointerEvents;
 
-        const connectionEl = hitElement?.closest?.('.connection-group');
+        const connectionEl = hitElement?.closest?.(CONNECTION_HIT_SELECTOR);
         if (!connectionEl) return null;
 
         const connectionIndex = Number(connectionEl.dataset.connectionIndex);
@@ -913,6 +944,7 @@
         e.stopPropagation();
         hideContextMenu();
         if (isConnectMode || !connections[index]) return;
+        blurCanvasSearchInput();
         commitActiveInlineEditors(e.target);
         if (e.pointerType === 'touch') {
             trackActivePointer(e);
@@ -1094,11 +1126,35 @@
         }
     }
 
+    function startCanvasPanFromPointer(e) {
+        commitActiveInlineEditors(e.target);
+        e.preventDefault();
+        pendingNodeEditId = null;
+        pendingTableEditContext = null;
+        clearTextSelection();
+        setCanvasSelectionSuppressed(true);
+        currentMode = 'PAN';
+        lastPoint = { x: e.clientX, y: e.clientY };
+        hasPanned = false;
+        trackActivePointer(e);
+        try {
+            viewport.setPointerCapture(e.pointerId);
+        } catch (err) {}
+        if (isConnectMode) toggleConnectMode();
+        selectionBoxUI.style.display = 'none';
+        if (isSpacePressed) viewport.classList.add('is-panning');
+    }
+
     viewport.addEventListener('pointerdown', (e) => {
         hideContextMenu();
         hideSaveMenu();
         hideAlignMenu();
-        if (e.target.closest('.node') || e.target.closest('.canvas-table') || e.target.closest('.connection-group') || e.target.closest('#toolbarStack') || e.target === connectionLabelEditor) return;
+        blurCanvasSearchInput();
+        const isMiddleClick = e.button === 1;
+        const isSpacePan = isSpacePressed && e.button === 0;
+        if (!isMiddleClick && !isSpacePan) {
+            if (e.target.closest('.node') || e.target.closest('.canvas-table') || e.target.closest(CONNECTION_HIT_SELECTOR) || e.target.closest('#toolbarStack') || e.target === connectionLabelEditor) return;
+        }
         commitActiveInlineEditors(e.target);
         e.preventDefault();
         pendingNodeEditId = null;
@@ -1106,15 +1162,18 @@
         clearTextSelection();
         setCanvasSelectionSuppressed(true);
         trackActivePointer(e);
-        viewport.setPointerCapture(e.pointerId);
+        try {
+            viewport.setPointerCapture(e.pointerId);
+        } catch (err) {}
         queueLongPressContextMenu(e);
         if (beginTouchGesture()) {
             return;
         }
-        if (e.button === 2 || activePointers.size >= 2) {
+        if (e.button === 2 || isMiddleClick || isSpacePan || activePointers.size >= 2) {
             currentMode = 'PAN'; lastPoint = { x: e.clientX, y: e.clientY }; hasPanned = false;
             if (isConnectMode) toggleConnectMode();
             selectionBoxUI.style.display = 'none';
+            if (isSpacePan) viewport.classList.add('is-panning');
         } else if (e.button === 0 && !isConnectMode) {
             currentMode = 'SELECT'; clearSelection(); startPoint = { x: e.clientX, y: e.clientY };
             selectionBoxUI.style.left = `${startPoint.x}px`; selectionBoxUI.style.top = `${startPoint.y}px`;
@@ -1125,6 +1184,11 @@
     function handleNodePointerDown(e) {
         if (e.target.closest('.label') && e.target.closest('.label').isContentEditable) return;
         if (e.button === 2) return;
+        blurCanvasSearchInput();
+        if (e.button === 1 || (isSpacePressed && e.button === 0)) {
+            startCanvasPanFromPointer(e);
+            return;
+        }
         if (!e.currentTarget.classList.contains('editing') && (e.target.closest('input[type="checkbox"]') || e.target.closest('a'))) {
             setCanvasSelectionSuppressed(false);
             return;
@@ -1322,6 +1386,7 @@
         const didDropOnDeleteBar = isDragging && (completedMode === 'DRAG_NODE' || completedMode === 'DRAG_TABLE') && isPointOverDeleteBar(e.clientX, e.clientY);
         clearDeleteDropZoneState();
         if (completedMode === 'SELECT') selectionBoxUI.style.display = 'none';
+        if (completedMode === 'PAN') viewport.classList.remove('is-panning');
         if (completedMode === 'DRAG_NODE' && !isDragging && pendingNodeEditId && selectedNodes.size === 1 && selectedNodes.has(pendingNodeEditId) && selectedTableIds.size === 0) {
             setCanvasSelectionSuppressed(false);
             enteredEditing = beginNodeLabelEditing(pendingNodeEditId);
@@ -1410,7 +1475,7 @@
         if (targetEl.closest('#toolbarStack')) return false;
         const editingLabel = targetEl.closest('.label');
         pendingContextTextCopy = editingLabel && editingLabel.isContentEditable ? getSelectedEditingText() : '';
-        const connectionEl = targetEl.closest('.connection-group');
+        const connectionEl = targetEl.closest(CONNECTION_HIT_SELECTOR);
         if (connectionEl && !editingLabel) {
             const connectionIndex = Number(connectionEl.dataset.connectionIndex);
             if (!selectedConnectionIndexes.has(connectionIndex)) selectConnection(connectionIndex);
@@ -1472,7 +1537,7 @@
         return targetEl instanceof Element &&
             !targetEl.closest('.node') &&
             !targetEl.closest('.canvas-table') &&
-            !targetEl.closest('.connection-group') &&
+            !targetEl.closest(CONNECTION_HIT_SELECTOR) &&
             !targetEl.closest('#toolbarStack') &&
             !targetEl.closest('.menu-panel') &&
             targetEl !== connectionLabelEditor;
@@ -1518,8 +1583,10 @@
     });
 
     function clearTextSelection() {
+        // Called on every drag/pan move; skip the no-op removeAllRanges so it
+        // doesn't fire a selectionchange per pointer event.
         const selection = window.getSelection();
-        if (selection) selection.removeAllRanges();
+        if (selection && selection.rangeCount) selection.removeAllRanges();
     }
 
     function setCanvasSelectionSuppressed(isSuppressed) {
@@ -1637,6 +1704,13 @@
         if (isEditingLabel) {
             e.preventDefault();
             stopEditingLabel(keyTarget);
+            return;
+        }
+
+        if (e.code === 'Space' && !e.repeat && !isEditingLabel && !isEditingTableCell && !isEditingConnectionLabel && !keyTarget?.matches('input, textarea, select')) {
+            e.preventDefault();
+            isSpacePressed = true;
+            viewport.classList.add('space-panning');
             return;
         }
 
@@ -1771,6 +1845,10 @@
     });
 
     window.addEventListener('keyup', function (e) {
+        if (e.code === 'Space') {
+            isSpacePressed = false;
+            viewport.classList.remove('space-panning', 'is-panning');
+        }
         if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(e.key.toLowerCase())) {
             if (nudgeHistoryClearTimer) {
                 clearTimeout(nudgeHistoryClearTimer);
@@ -1778,6 +1856,11 @@
             }
             nudgeHistoryPending = false;
         }
+    });
+
+    window.addEventListener('blur', () => {
+        isSpacePressed = false;
+        viewport.classList.remove('space-panning', 'is-panning');
     });
 
     window.addEventListener('paste', (e) => {
@@ -2140,14 +2223,14 @@
         const ns = "http://www.w3.org/2000/svg";
         while (renderedConnectionGroups.length > connections.length) {
             const stale = renderedConnectionGroups.pop();
-            if (stale && stale.g && stale.g.parentNode) stale.g.parentNode.removeChild(stale.g);
+            if (stale) removeConnectionGroup(stale);
         }
         connections.forEach((conn, index) => {
             const metrics = getConnectionRenderMetrics(conn);
             let entry = renderedConnectionGroups[index];
             if (!metrics) {
                 if (entry) {
-                    if (entry.g && entry.g.parentNode) entry.g.parentNode.removeChild(entry.g);
+                    removeConnectionGroup(entry);
                     renderedConnectionGroups[index] = null;
                 }
                 return;
@@ -2160,6 +2243,7 @@
         });
         syncConnectionLabelEditorPosition();
         renderConnectPreview();
+        if (typeof renderMinimap === 'function') renderMinimap();
     }
 
     function createConnectionGroup(index) {
@@ -2186,11 +2270,16 @@
         g.appendChild(line);
         g.appendChild(hBox);
         svgLayer.appendChild(g);
-        return { g, line, hBox, labelGroup: null, labelText: null, lastLabelText: null };
+        return { g, line, hBox, labelEl: null, lastLabelText: null };
+    }
+
+    function removeConnectionGroup(entry) {
+        if (entry.g && entry.g.parentNode) entry.g.parentNode.removeChild(entry.g);
+        if (entry.labelEl && entry.labelEl.parentNode) entry.labelEl.parentNode.removeChild(entry.labelEl);
+        entry.labelEl = null;
     }
 
     function updateConnectionGroup(entry, conn, index, metrics) {
-        const ns = "http://www.w3.org/2000/svg";
         entry.g.dataset.connectionIndex = String(index);
         const isSel = selectedConnectionIndexes.has(index);
         const connectionType = normalizeConnectionType(conn.type);
@@ -2204,36 +2293,32 @@
 
         const showLabel = Boolean(conn.label) && editingConnectionIndex !== index;
         if (showLabel) {
-            if (!entry.labelGroup) {
-                entry.labelGroup = document.createElementNS(ns, "g");
-                entry.labelGroup.setAttribute("class", "connection-label-group");
-                entry.labelGroup.addEventListener('pointerdown', (e) => {
-                    const idx = Number(e.currentTarget.closest('.connection-group').dataset.connectionIndex);
+            if (!entry.labelEl) {
+                const labelEl = document.createElement('div');
+                labelEl.className = 'connection-label';
+                labelEl.addEventListener('pointerdown', (e) => {
+                    const idx = Number(e.currentTarget.dataset.connectionIndex);
                     if (Number.isInteger(idx)) handleConnectionPointerDown(e, idx);
                 });
-                entry.labelGroup.addEventListener('dblclick', (e) => {
-                    const idx = Number(e.currentTarget.closest('.connection-group').dataset.connectionIndex);
+                labelEl.addEventListener('dblclick', (e) => {
+                    const idx = Number(e.currentTarget.dataset.connectionIndex);
                     if (Number.isInteger(idx)) handleConnectionDoubleClick(e, idx);
                 });
-                entry.labelText = document.createElementNS(ns, "text");
-                entry.labelText.setAttribute("class", "connection-label-text");
-                entry.labelText.setAttribute("text-anchor", "middle");
-                entry.labelText.setAttribute("dominant-baseline", "middle");
-                entry.labelGroup.appendChild(entry.labelText);
-                entry.g.appendChild(entry.labelGroup);
+                (connectionLabelLayer || content).appendChild(labelEl);
+                entry.labelEl = labelEl;
             }
-            const text = entry.labelText;
-            text.setAttribute("x", metrics.labelX.toFixed(2));
-            text.setAttribute("y", metrics.labelY.toFixed(2));
-            if (isSel) text.classList.add('selected'); else text.classList.remove('selected');
+            const labelEl = entry.labelEl;
+            labelEl.dataset.connectionIndex = String(index);
+            labelEl.style.left = `${metrics.labelX.toFixed(2)}px`;
+            labelEl.style.top = `${metrics.labelY.toFixed(2)}px`;
+            labelEl.classList.toggle('selected', isSel);
             if (entry.lastLabelText !== conn.label) {
-                text.textContent = conn.label;
+                labelEl.textContent = conn.label;
                 entry.lastLabelText = conn.label;
             }
-        } else if (entry.labelGroup) {
-            if (entry.labelGroup.parentNode) entry.labelGroup.parentNode.removeChild(entry.labelGroup);
-            entry.labelGroup = null;
-            entry.labelText = null;
+        } else if (entry.labelEl) {
+            removeConnectionGroup({ labelEl: entry.labelEl });
+            entry.labelEl = null;
             entry.lastLabelText = null;
         }
     }
@@ -2273,6 +2358,11 @@
     var canvasSearchMatches = [];
     var currentMatchIndex = -1;
 
+    function blurCanvasSearchInput() {
+        const active = document.activeElement;
+        if (active && active.classList && active.classList.contains('canvas-search-input')) active.blur();
+    }
+
     function openCanvasSearch() {
         if (canvasSearchEl && canvasSearchEl.isConnected) {
             const input = canvasSearchEl.querySelector('.canvas-search-input');
@@ -2307,10 +2397,21 @@
         input.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
                 e.preventDefault();
+                e.stopPropagation();
                 navigateCanvasSearch(e.shiftKey ? -1 : 1);
             } else if (e.key === 'Escape') {
                 e.preventDefault();
+                e.stopPropagation();
                 closeCanvasSearch();
+            } else if (e.key === 'Delete' || e.key === 'Backspace') {
+                // Empty query has nothing to edit: fall through to canvas delete
+                // instead of trapping Del/Backspace in the search box.
+                if (!input.value) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    input.blur();
+                    deleteSelection();
+                }
             }
         });
 
@@ -2423,5 +2524,201 @@
         panX = (viewport.clientWidth / 2) - targetCenterX * zoom;
         panY = (viewport.clientHeight / 2) - targetCenterY * zoom;
         updateTransform();
+    }
+
+    // ===== Minimap =====
+    var minimapContainer = null;
+    var minimapCanvas = null;
+    var minimapAccentColor = '';
+    var minimapToggleBtn = null;
+    var minimapBody = null;
+    var minimapCollapsed = false;
+    var minimapRafId = null;
+    var minimapBounds = null;
+
+    function initMinimap() {
+        minimapContainer = document.getElementById('minimapContainer');
+        minimapCanvas = document.getElementById('minimapCanvas');
+        minimapToggleBtn = document.getElementById('minimapToggleBtn');
+        minimapBody = document.getElementById('minimapBody');
+
+        if (minimapToggleBtn && minimapContainer) {
+            minimapToggleBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                minimapCollapsed = !minimapCollapsed;
+                minimapContainer.classList.toggle('collapsed', minimapCollapsed);
+                minimapToggleBtn.textContent = minimapCollapsed ? '▸' : '▾';
+                minimapToggleBtn.title = minimapCollapsed ? 'Expand Minimap' : 'Collapse Minimap';
+                if (!minimapCollapsed) renderMinimap();
+            });
+        }
+
+        if (minimapBody) {
+            let isDraggingMinimap = false;
+
+            const handleMinimapPointer = (e) => {
+                if (!minimapBounds || !minimapCanvas) return;
+                const rect = minimapCanvas.getBoundingClientRect();
+                const clickX = e.clientX - rect.left;
+                const clickY = e.clientY - rect.top;
+                const { minX, minY, scale, offsetX, offsetY } = minimapBounds;
+                if (!scale) return;
+                const worldX = minX + (clickX - offsetX) / scale;
+                const worldY = minY + (clickY - offsetY) / scale;
+                panX = (viewport.clientWidth / 2) - worldX * zoom;
+                panY = (viewport.clientHeight / 2) - worldY * zoom;
+                updateTransform();
+            };
+
+            minimapBody.addEventListener('pointerdown', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                isDraggingMinimap = true;
+                if (typeof minimapBody.setPointerCapture === 'function') {
+                    try { minimapBody.setPointerCapture(e.pointerId); } catch (err) {}
+                }
+                handleMinimapPointer(e);
+            });
+
+            minimapBody.addEventListener('pointermove', (e) => {
+                if (!isDraggingMinimap) return;
+                e.preventDefault();
+                handleMinimapPointer(e);
+            });
+
+            const stopMinimapDrag = (e) => {
+                if (isDraggingMinimap) {
+                    isDraggingMinimap = false;
+                    if (typeof minimapBody.releasePointerCapture === 'function') {
+                        try { minimapBody.releasePointerCapture(e.pointerId); } catch (err) {}
+                    }
+                }
+            };
+            minimapBody.addEventListener('pointerup', stopMinimapDrag);
+            minimapBody.addEventListener('pointercancel', stopMinimapDrag);
+        }
+
+        renderMinimap();
+    }
+
+    function invalidateMinimapTheme() {
+        minimapAccentColor = '';
+        renderMinimap();
+    }
+
+    function renderMinimap() {
+        if (!minimapCanvas || minimapCollapsed) return;
+        if (minimapRafId) return;
+        minimapRafId = requestAnimationFrame(() => {
+            minimapRafId = null;
+            renderMinimapNow();
+        });
+    }
+
+    function renderMinimapNow() {
+        if (!minimapCanvas) return;
+        const ctx = minimapCanvas.getContext('2d');
+        if (!ctx) return;
+        const cw = minimapCanvas.width;
+        const ch = minimapCanvas.height;
+        ctx.clearRect(0, 0, cw, ch);
+
+        const nodeVals = Object.values(nodes).filter(n => n.el && n.el.style.display !== 'none');
+        const tableVals = Object.values(tables).filter(t => t.el && t.el.style.display !== 'none');
+
+        // Use the cached viewport size: reading clientWidth here would force a
+        // style/layout pass right after the camera transform write.
+        const vpW = (gridState.width || viewport.clientWidth || window.innerWidth) / zoom;
+        const vpH = (gridState.height || viewport.clientHeight || window.innerHeight) / zoom;
+        const vpLeft = -panX / zoom;
+        const vpTop = -panY / zoom;
+
+        let minX = vpLeft;
+        let minY = vpTop;
+        let maxX = vpLeft + vpW;
+        let maxY = vpTop + vpH;
+
+        nodeVals.forEach(n => {
+            const sz = getElementRenderSize(n.el);
+            minX = Math.min(minX, n.x);
+            minY = Math.min(minY, n.y);
+            maxX = Math.max(maxX, n.x + sz.w);
+            maxY = Math.max(maxY, n.y + sz.h);
+        });
+        tableVals.forEach(t => {
+            const sz = getElementRenderSize(t.el);
+            minX = Math.min(minX, t.x);
+            minY = Math.min(minY, t.y);
+            maxX = Math.max(maxX, t.x + sz.w);
+            maxY = Math.max(maxY, t.y + sz.h);
+        });
+
+        const padding = 60;
+        minX -= padding;
+        minY -= padding;
+        maxX += padding;
+        maxY += padding;
+
+        const worldW = Math.max(1, maxX - minX);
+        const worldH = Math.max(1, maxY - minY);
+
+        const scale = Math.min(cw / worldW, ch / worldH);
+        const offsetX = (cw - worldW * scale) / 2;
+        const offsetY = (ch - worldH * scale) / 2;
+
+        const isDark = document.body.classList.contains('theme-dark');
+
+        nodeVals.forEach(n => {
+            const sz = getElementRenderSize(n.el);
+            const mx = offsetX + (n.x - minX) * scale;
+            const my = offsetY + (n.y - minY) * scale;
+            const mw = Math.max(2, sz.w * scale);
+            const mh = Math.max(2, sz.h * scale);
+            if (n.type === 'group') {
+                ctx.fillStyle = isDark ? 'rgba(51, 65, 85, 0.4)' : 'rgba(219, 234, 254, 0.5)';
+                ctx.strokeStyle = isDark ? '#475569' : '#94a3b8';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(mx, my, mw, mh);
+                ctx.fillRect(mx, my, mw, mh);
+            } else if (n.type === 'note') {
+                ctx.fillStyle = isDark ? '#713f12' : '#fef08a';
+                ctx.fillRect(mx, my, mw, mh);
+            } else {
+                ctx.fillStyle = n.bgColor || (isDark ? '#334155' : '#cbd5e1');
+                ctx.fillRect(mx, my, mw, mh);
+            }
+        });
+
+        tableVals.forEach(t => {
+            const sz = getElementRenderSize(t.el);
+            const mx = offsetX + (t.x - minX) * scale;
+            const my = offsetY + (t.y - minY) * scale;
+            const mw = Math.max(2, sz.w * scale);
+            const mh = Math.max(2, sz.h * scale);
+            ctx.fillStyle = isDark ? '#1e3a8a' : '#bfdbfe';
+            ctx.fillRect(mx, my, mw, mh);
+        });
+
+        const vmx = offsetX + (vpLeft - minX) * scale;
+        const vmy = offsetY + (vpTop - minY) * scale;
+        const vmw = vpW * scale;
+        const vmh = vpH * scale;
+
+        // The viewport box is drawn into the canvas rather than positioned as
+        // a DOM element, so camera moves never trigger DOM layout/paint here.
+        if (!minimapAccentColor) {
+            minimapAccentColor = getComputedStyle(minimapCanvas).getPropertyValue('--primary').trim() || '#6366f1';
+        }
+        const boxX = Math.max(0, Math.min(cw, vmx));
+        const boxY = Math.max(0, Math.min(ch, vmy));
+        const boxW = Math.max(6, Math.min(cw, vmw));
+        const boxH = Math.max(6, Math.min(ch, vmh));
+        ctx.fillStyle = 'rgba(99, 102, 241, 0.18)';
+        ctx.fillRect(boxX, boxY, boxW, boxH);
+        ctx.strokeStyle = minimapAccentColor;
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(boxX + 0.75, boxY + 0.75, Math.max(0, boxW - 1.5), Math.max(0, boxH - 1.5));
+
+        minimapBounds = { minX, minY, maxX, maxY, scale, offsetX, offsetY, cw, ch };
     }
 

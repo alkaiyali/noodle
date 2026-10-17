@@ -50,6 +50,53 @@ function ok(message) {
         });
     }
 
+    window.HTMLCanvasElement.prototype.getContext = function (type) {
+            if (type === '2d') {
+                return {
+                    clearRect: () => {},
+                    fillRect: () => {},
+                    strokeRect: () => {},
+                    drawImage: () => {},
+                    beginPath: () => {},
+                    moveTo: () => {},
+                    lineTo: () => {},
+                    arc: () => {},
+                    stroke: () => {},
+                    fill: () => {},
+                    fillStyle: '',
+                    strokeStyle: '',
+                    lineWidth: 1
+                };
+            }
+            return null;
+    };
+    window.HTMLCanvasElement.prototype.toBlob = function (callback, mime) {
+        callback(new window.Blob(['fake-image-bytes'], { type: mime || 'image/png' }));
+    };
+
+    if (typeof window.URL.createObjectURL !== 'function') {
+        window.URL.createObjectURL = () => 'blob:mock-url';
+        window.URL.revokeObjectURL = () => {};
+    }
+
+    Object.defineProperty(window.HTMLImageElement.prototype, 'src', {
+        set(val) {
+            setTimeout(() => {
+                if (typeof this.onload === 'function') this.onload();
+            }, 10);
+        }
+    });
+
+    let clipboardItemsWritten = [];
+    window.navigator.clipboard = {
+        write: async (items) => { clipboardItemsWritten = items; },
+        writeText: async () => {},
+        readText: async () => ''
+    };
+    window.ClipboardItem = class ClipboardItem {
+        constructor(data) { this.data = data; }
+    };
+
     window.console.error = (...args) => {
         // Surface any console errors as test failures.
         console.log(`[console.error] ${args.join(' ')}`);
@@ -274,6 +321,44 @@ function ok(message) {
         }
     }
 
+    // Branch analytics stay linear on merging (fan-in) graphs. Path
+    // enumeration here used to freeze the main thread for minutes, which
+    // stalled the alt-connect preview and marquee while dragging.
+    if (typeof window.analyzeBranch !== 'function') fail('analyzeBranch is not defined');
+    else {
+        const depth = 22;
+        const analyticsNodes = [{ id: 'root', type: 'process', x: 0, y: 0, text: 'Root' }];
+        const analyticsConnections = [];
+        let frontier = ['root'];
+        let group = 0;
+        for (let d = 0; d < depth; d++) {
+            const leftId = `l${group}`;
+            const rightId = `r${group}`;
+            const mergeId = `m${group}`;
+            group++;
+            analyticsNodes.push(
+                { id: leftId, type: 'process', x: 0, y: 0, text: '1' },
+                { id: rightId, type: 'process', x: 0, y: 0, text: '2' },
+                { id: mergeId, type: 'process', x: 0, y: 0, text: '3' }
+            );
+            frontier.forEach(sourceId => {
+                analyticsConnections.push({ from: sourceId, to: leftId });
+                analyticsConnections.push({ from: sourceId, to: rightId });
+            });
+            analyticsConnections.push({ from: leftId, to: mergeId });
+            analyticsConnections.push({ from: rightId, to: mergeId });
+            frontier = [mergeId];
+        }
+        window.restoreGraphPayload({ nodes: analyticsNodes, tables: [], connections: analyticsConnections }, true);
+        const startedAt = Date.now();
+        const stats = window.analyzeBranch('root');
+        const elapsedMs = Date.now() - startedAt;
+        if (elapsedMs > 2000) fail(`analyzeBranch took ${elapsedMs}ms on a merging graph — path enumeration regressed`);
+        else if (stats.totalChildren !== analyticsNodes.length - 1) fail(`analyzeBranch counted ${stats.totalChildren} children, expected ${analyticsNodes.length - 1}`);
+        else if (stats.deepestBranch !== depth * 2) fail(`analyzeBranch branch depth ${stats.deepestBranch}, expected ${depth * 2}`);
+        else ok(`branch analytics stay linear on merging graphs (${analyticsNodes.length} nodes in ${elapsedMs}ms)`);
+    }
+
     // Quick-Add directional handles
     if (typeof window.updateQuickAddHandles !== 'function') fail('updateQuickAddHandles is not defined');
     else {
@@ -351,6 +436,127 @@ function ok(message) {
         const restored = await window.restoreActiveDocumentFromStore();
         if (!restored) fail('restoreActiveDocumentFromStore did not restore the autosaved graph');
         else ok('restoreActiveDocumentFromStore restores the stored document');
+    }
+
+    // New node shapes (database, note, document)
+    const newTypes = ['database', 'note', 'document'];
+    const allNewTypesValid = newTypes.every(t => window.DEFAULT_NODE_LABELS[t] && window.NODE_MIN_SIZES[t] && window.isResizableNodeType(t));
+    if (!allNewTypesValid) fail('new node types (database, note, document) not properly registered');
+    else ok('new node types (database, note, document) registered with labels, min sizes, and resizability');
+
+    const dbNodeId = window.createNode('database');
+    const noteNodeId = window.createNode('note');
+    const docNodeId = window.createNode('document');
+    if (!window.nodes[dbNodeId] || !window.nodes[noteNodeId] || !window.nodes[docNodeId]) fail('failed to create database, note, or document nodes');
+    else if (!window.nodes[dbNodeId].el.classList.contains('database') ||
+             !window.nodes[noteNodeId].el.classList.contains('note') ||
+             !window.nodes[docNodeId].el.classList.contains('document')) fail('created nodes missing expected CSS class');
+    else ok('database, note, and document nodes instantiated in DOM');
+
+    // Mermaid syntax for new shapes
+    const mermaidWithNewShapes = `flowchart TD\n    DB[("Customer DB")]\n    NOTE>"Migration Notice"]\n    DB --> NOTE`;
+    const importedNewShapes = window.importMermaidText(mermaidWithNewShapes);
+    if (!importedNewShapes) fail('importMermaidText failed on new shapes');
+    else {
+        const importedNodes = Object.values(window.nodes);
+        const hasDb = importedNodes.some(n => n.type === 'database');
+        const hasNote = importedNodes.some(n => n.type === 'note');
+        if (!hasDb || !hasNote) fail('Mermaid import did not produce database or note node types');
+        else ok('Mermaid import parses database and note syntax');
+    }
+
+    // SVG export handles new shapes
+    const builtSVG = window.buildExportSVG();
+    const svgStr = new window.XMLSerializer().serializeToString(builtSVG.svg);
+    if (!svgStr.includes('ellipse') && !svgStr.includes('polygon') && !svgStr.includes('path')) fail('SVG export missing expected geometry for new shapes');
+    else ok('SVG export renders custom geometry for database, note, and document shapes');
+
+    // Interactive Canvas Minimap
+    const minimapContainer = window.document.getElementById('minimapContainer');
+    const minimapCanvas = window.document.getElementById('minimapCanvas');
+    const minimapToggleBtn = window.document.getElementById('minimapToggleBtn');
+    if (!minimapContainer || !minimapCanvas || !minimapToggleBtn) fail('minimap DOM elements missing');
+    else {
+        ok('minimap DOM elements present');
+        if (typeof window.renderMinimap !== 'function') fail('renderMinimap is not defined');
+        else {
+            window.renderMinimap();
+            minimapToggleBtn.click();
+            if (!minimapContainer.classList.contains('collapsed')) fail('minimap toggle button did not collapse minimap');
+            else ok('minimap collapses when toggled');
+            minimapToggleBtn.click();
+            if (minimapContainer.classList.contains('collapsed')) fail('minimap toggle button did not expand minimap');
+            else ok('minimap expands when toggled');
+        }
+    }
+
+    // Canvas Navigation Ergonomics
+    if (typeof window.isSpacePressed === 'undefined') fail('isSpacePressed is not defined');
+    else {
+        const initialPanX = window.panX;
+        const initialPanY = window.panY;
+        const initialZoom = window.zoom;
+
+        const viewportEl = window.document.getElementById('canvas-viewport');
+        const panWheelEvt = new window.WheelEvent('wheel', { deltaX: 40, deltaY: 60, ctrlKey: false, bubbles: true, cancelable: true });
+        viewportEl.dispatchEvent(panWheelEvt);
+        if (window.panX === initialPanX && window.panY === initialPanY) fail('wheel event without ctrl did not pan canvas');
+        else ok('wheel event without ctrl performs canvas panning');
+
+        const zoomWheelEvt = new window.WheelEvent('wheel', { deltaX: 0, deltaY: -100, ctrlKey: true, bubbles: true, cancelable: true });
+        viewportEl.dispatchEvent(zoomWheelEvt);
+        if (window.zoom === initialZoom) fail('wheel event with ctrl did not zoom canvas');
+        else ok('wheel event with ctrl/meta performs zoom');
+    }
+
+    // Copy Image to Clipboard
+    if (typeof window.renderGraphToPNGBlob !== 'function') fail('renderGraphToPNGBlob is not defined');
+    else if (typeof window.copyImageToClipboard !== 'function') fail('copyImageToClipboard is not defined');
+    else {
+        const blobReceived = await new Promise((resolve) => {
+            window.renderGraphToPNGBlob((blob) => resolve(blob));
+        });
+        if (!blobReceived) fail('renderGraphToPNGBlob did not invoke callback with blob');
+        else ok('renderGraphToPNGBlob generates PNG blob');
+
+        clipboardItemsWritten = [];
+        await window.copyImageToClipboard();
+        await new Promise(resolve => setTimeout(resolve, 50));
+        if (clipboardItemsWritten.length === 0) fail('copyImageToClipboard did not write to navigator.clipboard');
+        else ok('copyImageToClipboard writes image to clipboard');
+    }
+
+    // Starter Diagram Templates
+    if (!window.DIAGRAM_TEMPLATES || typeof window.DIAGRAM_TEMPLATES !== 'object') fail('DIAGRAM_TEMPLATES is not defined');
+    else {
+        const expectedTemplates = ['auth_flow', 'cloud_arch', 'incident_triage'];
+        const allPresent = expectedTemplates.every(k => window.DIAGRAM_TEMPLATES[k] && typeof window.DIAGRAM_TEMPLATES[k].build === 'function');
+        if (!allPresent) fail('DIAGRAM_TEMPLATES missing expected templates');
+        else ok(`DIAGRAM_TEMPLATES contains ${expectedTemplates.join(', ')}`);
+
+        if (typeof window.openTemplatesModal !== 'function' || typeof window.closeTemplatesModal !== 'function') fail('template modal functions missing');
+        else {
+            window.openTemplatesModal();
+            const tmplModal = window.document.querySelector('.templates-dialog');
+            if (!tmplModal) fail('openTemplatesModal did not render .templates-dialog');
+            else {
+                const cards = tmplModal.querySelectorAll('.template-card');
+                if (cards.length !== 3) fail(`expected 3 template cards, found ${cards.length}`);
+                else ok('templates modal displays starter templates');
+            }
+            window.closeTemplatesModal();
+            if (window.document.querySelector('.templates-dialog')) fail('closeTemplatesModal did not close dialog');
+            else ok('templates modal closes properly');
+        }
+
+        if (typeof window.createDiagramFromTemplate !== 'function') fail('createDiagramFromTemplate is not defined');
+        else {
+            await window.createDiagramFromTemplate('auth_flow');
+            const authNodes = Object.values(window.nodes);
+            const authConns = window.connections;
+            if (authNodes.length < 5 || authConns.length < 4) fail('createDiagramFromTemplate did not instantiate template nodes and connections');
+            else ok(`createDiagramFromTemplate instantiated template graph (${authNodes.length} nodes, ${authConns.length} connections)`);
+        }
     }
 
     console.log(process.exitCode ? '\nSMOKE TEST FAILED' : '\nSMOKE TEST PASSED');

@@ -49,6 +49,34 @@
         reader.readAsText(file);
     }
 
+    async function copyImageToClipboard() {
+        hideSaveMenu();
+        hideAlignMenu();
+        clearSelection();
+        if (typeof renderGraphToPNGBlob !== 'function') {
+            showToast('Image export unavailable.', 'error');
+            return;
+        }
+        if (!navigator.clipboard || typeof ClipboardItem === 'undefined') {
+            showToast('Clipboard image copying is not supported in this browser.', 'warning');
+            return;
+        }
+        renderGraphToPNGBlob(async (pngBlob) => {
+            if (!pngBlob) {
+                showToast('Failed to generate image.', 'error');
+                return;
+            }
+            try {
+                await navigator.clipboard.write([
+                    new ClipboardItem({ 'image/png': pngBlob })
+                ]);
+                showToast('Copied diagram image to clipboard!', 'success', 2500);
+            } catch (err) {
+                showToast('Unable to copy image to clipboard.', 'error');
+            }
+        });
+    }
+
     function exportMermaidText() {
         const lines = ['flowchart TD'];
         const safeNodeId = (id) => String(id).replace(/[^a-zA-Z0-9_]/g, '_');
@@ -62,7 +90,9 @@
                 lines.push(`    ${sid}(["${labelText}"])`);
             } else if (n.type === 'decision') {
                 lines.push(`    ${sid}{"${labelText}"}`);
-            } else if (n.type === 'floatingText') {
+            } else if (n.type === 'database') {
+                lines.push(`    ${sid}[("${labelText}")]`);
+            } else if (n.type === 'note' || n.type === 'floatingText') {
                 lines.push(`    ${sid}>"${labelText}"]`);
             } else {
                 lines.push(`    ${sid}["${labelText}"]`);
@@ -167,7 +197,7 @@
                     return;
                 }
 
-                const nodeMatch = line.match(/^([a-zA-Z0-9_-]+)(?:(\(\[|\[|\{|>))(.*)(?:(\]\)|"\}|\}\]|\}|\]|\)))/);
+                const nodeMatch = line.match(/^([a-zA-Z0-9_-]+)\s*(?:(\(\[|\[\(|\[|\{|>))(.*?)(?:\)\]|\]\)|\]|\}|\))$/);
                 if (nodeMatch) {
                     const rawId = nodeMatch[1];
                     const opener = nodeMatch[2];
@@ -175,10 +205,11 @@
 
                     let nodeType = 'process';
                     if (opener === '([') nodeType = 'start';
+                    else if (opener === '[(') nodeType = 'database';
                     else if (opener === '{') nodeType = 'decision';
-                    else if (opener === '>') nodeType = 'floatingText';
+                    else if (opener === '>') nodeType = 'note';
 
-                    const noodleId = createNode(nodeType, null, layoutX, layoutY, text, '#ffffff', '#0f172a', false);
+                    const noodleId = createNode(nodeType, null, layoutX, layoutY, text, null, null, false);
                     createdNodeMap[rawId] = noodleId;
                     layoutX += 160;
                     if (layoutX > 600) { layoutX = 100; layoutY += 120; }

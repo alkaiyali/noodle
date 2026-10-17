@@ -1,7 +1,11 @@
 'use strict';
 
 // Bump on precache changes so old caches are purged on activate.
-var CACHE = 'noodle-v4';
+var CACHE = 'noodle-v5';
+
+// On local dev hosts let every request hit the network so CSS/JS edits show
+// up on the next reload instead of one reload late (stale-while-revalidate).
+var IS_DEV_HOST = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(self.location.hostname);
 
 var PRECACHE_URLS = [
     './',
@@ -83,7 +87,7 @@ function cacheableResponse(response) {
 }
 
 self.addEventListener('fetch', function (event) {
-    if (event.request.method !== 'GET') return;
+    if (IS_DEV_HOST || event.request.method !== 'GET') return;
     var url;
     try {
         url = new URL(event.request.url);

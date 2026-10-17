@@ -391,12 +391,25 @@ async function openDiagramsModal() {
     header.className = 'modal-title';
     const headerLabel = document.createElement('span');
     headerLabel.textContent = 'My Diagrams';
+    const headerBtns = document.createElement('div');
+    headerBtns.style.display = 'flex';
+    headerBtns.style.gap = '6px';
     const newDocBtn = document.createElement('button');
     newDocBtn.type = 'button';
     newDocBtn.className = 'mini-btn new-doc-btn';
-    newDocBtn.textContent = '+ New Diagram';
+    newDocBtn.textContent = '+ Blank';
+    const templateDocBtn = document.createElement('button');
+    templateDocBtn.type = 'button';
+    templateDocBtn.className = 'mini-btn template-doc-btn';
+    templateDocBtn.textContent = 'Templates...';
+    templateDocBtn.addEventListener('click', () => {
+        closeDiagramsModal();
+        openTemplatesModal();
+    });
+    headerBtns.appendChild(newDocBtn);
+    headerBtns.appendChild(templateDocBtn);
     header.appendChild(headerLabel);
-    header.appendChild(newDocBtn);
+    header.appendChild(headerBtns);
 
     const list = document.createElement('div');
     list.className = 'diagrams-list';
@@ -504,4 +517,194 @@ function closeDiagramsModal() {
     if (!diagramsModalEl || !diagramsModalEl.isConnected) return;
     diagramsModalEl.remove();
     diagramsModalEl = null;
+}
+
+// ===== Diagram Templates =====
+var templatesModalEl = null;
+
+var DIAGRAM_TEMPLATES = {
+    auth_flow: {
+        title: 'User Authentication Flow',
+        description: 'Login form, credential check, session issuance, and database audit.',
+        build: () => ({
+            nodes: [
+                { id: 't_start', type: 'start', x: 240, y: 80, text: 'User Enters Credentials', bgColor: '#dcfce7', textColor: '#166534' },
+                { id: 't_decision', type: 'decision', x: 230, y: 190, text: 'Valid Credentials?', bgColor: '#fef3c7', textColor: '#92400e' },
+                { id: 't_error', type: 'process', x: 470, y: 200, text: 'Show Error & Rate Limit', bgColor: '#ffe4e6', textColor: '#9f1239' },
+                { id: 't_session', type: 'process', x: 230, y: 340, text: 'Issue JWT & Session Cookie', bgColor: '#e0f2fe', textColor: '#075985' },
+                { id: 't_db', type: 'database', x: 230, y: 460, text: 'Update User Last Login', bgColor: '#f1f5f9', textColor: '#334155' },
+                { id: 't_end', type: 'start', x: 240, y: 570, text: 'Redirect to Dashboard', bgColor: '#dcfce7', textColor: '#166534' }
+            ],
+            tables: [],
+            connections: [
+                { from: 't_start', to: 't_decision', type: 'sequence', label: 'Submit form' },
+                { from: 't_decision', to: 't_error', type: 'sequence', label: 'No' },
+                { from: 't_error', to: 't_start', type: 'sequence', label: 'Retry' },
+                { from: 't_decision', to: 't_session', type: 'sequence', label: 'Yes' },
+                { from: 't_session', to: 't_db', type: 'sequence', label: 'Audit' },
+                { from: 't_db', to: 't_end', type: 'sequence', label: 'Success' }
+            ]
+        })
+    },
+    cloud_arch: {
+        title: 'Cloud Microservices Architecture',
+        description: 'Web client, API gateway, auth and core microservices with DB and cache.',
+        build: () => ({
+            nodes: [
+                { id: 'c_client', type: 'start', x: 100, y: 150, text: 'Web / Mobile Client', bgColor: '#e0f2fe', textColor: '#0369a1' },
+                { id: 'c_gateway', type: 'process', x: 310, y: 150, text: 'API Gateway / WAF', bgColor: '#f3e8ff', textColor: '#6b21a8' },
+                { id: 'c_auth', type: 'process', x: 530, y: 80, text: 'Auth Microservice', bgColor: '#dcfce7', textColor: '#15803d' },
+                { id: 'c_core', type: 'process', x: 530, y: 220, text: 'Core Application API', bgColor: '#fef3c7', textColor: '#a16207' },
+                { id: 'c_db', type: 'database', x: 760, y: 180, text: 'Primary PostgreSQL', bgColor: '#ffffff', textColor: '#0f172a' },
+                { id: 'c_cache', type: 'database', x: 760, y: 290, text: 'Redis Cache Layer', bgColor: '#ffe4e6', textColor: '#be123c' },
+                { id: 'c_note', type: 'note', x: 730, y: 60, text: '5m TTL on cached sessions', bgColor: '#fef9c3', textColor: '#713f12' }
+            ],
+            tables: [],
+            connections: [
+                { from: 'c_client', to: 'c_gateway', type: 'sequence', label: 'HTTPS' },
+                { from: 'c_gateway', to: 'c_auth', type: 'sequence', label: 'Verify token' },
+                { from: 'c_gateway', to: 'c_core', type: 'sequence', label: 'Route request' },
+                { from: 'c_core', to: 'c_db', type: 'dependency', label: 'Read/Write' },
+                { from: 'c_core', to: 'c_cache', type: 'dependency', label: 'Check cache' },
+                { from: 'c_cache', to: 'c_note', type: 'dependency', label: '' }
+            ]
+        })
+    },
+    incident_triage: {
+        title: 'Incident Triage & Response',
+        description: 'Alert response, health checks, rollback branch, and post-mortem document.',
+        build: () => ({
+            nodes: [
+                { id: 'i_alert', type: 'start', x: 220, y: 80, text: 'High Latency Alert', bgColor: '#ffe4e6', textColor: '#9f1239' },
+                { id: 'i_check', type: 'decision', x: 210, y: 190, text: 'Service Healthy?', bgColor: '#fef3c7', textColor: '#854d0e' },
+                { id: 'i_rollback', type: 'process', x: 450, y: 190, text: 'Rollback Deployment', bgColor: '#fee2e2', textColor: '#b91c1c' },
+                { id: 'i_logs', type: 'process', x: 210, y: 320, text: 'Inspect Trace Logs & Metrics', bgColor: '#e0f2fe', textColor: '#0369a1' },
+                { id: 'i_doc', type: 'document', x: 210, y: 440, text: 'Incident Post-Mortem Doc', bgColor: '#ffffff', textColor: '#334155' },
+                { id: 'i_resolved', type: 'start', x: 220, y: 560, text: 'Incident Resolved', bgColor: '#dcfce7', textColor: '#15803d' }
+            ],
+            tables: [],
+            connections: [
+                { from: 'i_alert', to: 'i_check', type: 'sequence', label: 'Page on-call' },
+                { from: 'i_check', to: 'i_rollback', type: 'sequence', label: 'Degraded' },
+                { from: 'i_check', to: 'i_logs', type: 'sequence', label: 'Online' },
+                { from: 'i_rollback', to: 'i_doc', type: 'sequence', label: 'Document fix' },
+                { from: 'i_logs', to: 'i_doc', type: 'sequence', label: 'Root cause' },
+                { from: 'i_doc', to: 'i_resolved', type: 'sequence', label: 'Close ticket' }
+            ]
+        })
+    }
+};
+
+async function createDiagramFromTemplate(templateKey) {
+    const tmpl = DIAGRAM_TEMPLATES[templateKey];
+    if (!tmpl) return;
+    if (typeof getGraphExportPayload === 'function') {
+        await saveActiveDiagramState(getGraphExportPayload());
+    }
+
+    const templateData = tmpl.build();
+    const newId = 'doc_' + Date.now();
+    const newDoc = {
+        id: newId,
+        title: tmpl.title,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        nodeCount: templateData.nodes ? templateData.nodes.length : 0,
+        data: templateData
+    };
+    await putDiagramInDB(newDoc);
+    activeDocumentId = newId;
+    activeDocumentTitle = newDoc.title;
+    try {
+        window.localStorage?.setItem(ACTIVE_DOC_KEY, activeDocumentId);
+    } catch (e) {}
+
+    updateDocHeaderUI();
+    if (typeof restoreGraphPayload === 'function') {
+        restoreGraphPayload(templateData, true);
+    }
+    if (typeof centerViewOnOrigin === 'function') centerViewOnOrigin();
+    if (typeof showToast === 'function') {
+        showToast(`Loaded template: ${tmpl.title}`, 'success', 2500);
+    }
+}
+
+function openTemplatesModal() {
+    if (templatesModalEl && templatesModalEl.isConnected) {
+        closeTemplatesModal();
+        return;
+    }
+
+    templatesModalEl = document.createElement('div');
+    templatesModalEl.className = 'modal-overlay';
+    templatesModalEl.setAttribute('role', 'dialog');
+    templatesModalEl.setAttribute('aria-modal', 'true');
+    templatesModalEl.setAttribute('aria-label', 'Diagram Templates');
+
+    const dialog = document.createElement('div');
+    dialog.className = 'modal-dialog templates-dialog';
+
+    const header = document.createElement('div');
+    header.className = 'modal-title';
+    header.textContent = 'Diagram Templates';
+
+    const list = document.createElement('div');
+    list.className = 'templates-list';
+
+    Object.entries(DIAGRAM_TEMPLATES).forEach(([key, tmpl]) => {
+        const card = document.createElement('div');
+        card.className = 'template-card';
+
+        const info = document.createElement('div');
+        info.className = 'template-info';
+
+        const title = document.createElement('div');
+        title.className = 'template-title';
+        title.textContent = tmpl.title;
+
+        const desc = document.createElement('div');
+        desc.className = 'template-desc';
+        desc.textContent = tmpl.description;
+
+        info.appendChild(title);
+        info.appendChild(desc);
+
+        const useBtn = document.createElement('button');
+        useBtn.type = 'button';
+        useBtn.className = 'mini-btn use-template-btn';
+        useBtn.textContent = 'Use Template';
+        useBtn.addEventListener('click', async () => {
+            closeTemplatesModal();
+            await createDiagramFromTemplate(key);
+        });
+
+        card.appendChild(info);
+        card.appendChild(useBtn);
+        list.appendChild(card);
+    });
+
+    const footer = document.createElement('div');
+    footer.className = 'modal-actions';
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'modal-btn modal-btn-primary';
+    closeBtn.type = 'button';
+    closeBtn.textContent = 'Cancel';
+    closeBtn.addEventListener('click', closeTemplatesModal);
+    footer.appendChild(closeBtn);
+
+    dialog.appendChild(header);
+    dialog.appendChild(list);
+    dialog.appendChild(footer);
+    templatesModalEl.appendChild(dialog);
+    document.body.appendChild(templatesModalEl);
+
+    templatesModalEl.addEventListener('pointerdown', (e) => {
+        if (e.target === templatesModalEl) closeTemplatesModal();
+    });
+}
+
+function closeTemplatesModal() {
+    if (!templatesModalEl || !templatesModalEl.isConnected) return;
+    templatesModalEl.remove();
+    templatesModalEl = null;
 }

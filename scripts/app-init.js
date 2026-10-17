@@ -103,6 +103,8 @@ var APP_ACTIONS = {
     'export-json': () => exportJSON(),
     'export-svg': () => exportSVG(),
     'export-png': () => exportPNG(),
+    'copy-image': () => copyImageToClipboard(),
+    'open-templates-modal': () => openTemplatesModal(),
     'apply-table-action': (actionEl) => {
         hideContextMenu();
         applyTableAction(actionEl.dataset.tableAction, actionEl.dataset.tableId || null, actionEl);
@@ -158,7 +160,14 @@ function bindCustomColorInputs() {
     }
 }
 
+if (typeof ResizeObserver === 'function') {
+    new ResizeObserver(() => invalidateGridSize()).observe(viewport);
+}
+
+// devicePixelRatio changes (browser zoom, moving between monitors) also fire
+// resize, so the grid canvas is re-measured either way.
 window.addEventListener('resize', () => {
+    invalidateGridSize();
     drawConnections();
     Object.values(tables).forEach(table => queueTableStructureHandleLayout(table));
     if (activeTableSummaryMenu?.tableId) positionTableSummaryMenu(activeTableSummaryMenu.tableId);
@@ -183,9 +192,9 @@ function createDefaultStarterGraph() {
 }
 
 bindAppActions();
-initializeToolbarButtons();
 bindCustomColorInputs();
 setSnapToGridEnabled(isSnapToGridEnabled());
+if (typeof initMinimap === 'function') initMinimap();
 if (typeof getSavedTheme === 'function' && typeof applyTheme === 'function') {
     applyTheme(getSavedTheme());
 }
@@ -254,8 +263,8 @@ function updateFullscreenUI() {
         var icon = fullscreenBtn.querySelector('#fullscreenIcon');
         if (icon) {
             icon.innerHTML = isFullscreen
-                ? '<path d="M8 3v3a2 2 0 0 1-2 2H3"></path><path d="M21 8h-3a2 2 0 0 1-2-2V3"></path><path d="M3 16h3a2 2 0 0 1 2 2v3"></path><path d="M16 21v-3a2 2 0 0 1 2-2h3"></path>'
-                : '<path d="M8 3H5a2 2 0 0 0-2 2v3"></path><path d="M21 8V5a2 2 0 0 0-2-2h-3"></path><path d="M3 16v3a2 2 0 0 0 2 2h3"></path><path d="M16 21h3a2 2 0 0 0 2-2v-3"></path>';
+                ? '<path d="M4 14h6v6"></path><path d="m3 21 7-7"></path><path d="M20 10h-6V4"></path><path d="m21 3-7 7"></path>'
+                : '<path d="M15 3h6v6"></path><path d="m21 3-7 7"></path><path d="M9 21H3v-6"></path><path d="m3 21 7-7"></path>';
         }
     }
 }

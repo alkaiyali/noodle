@@ -175,30 +175,51 @@
     function analyzeBranch(rootId) {
         const index = buildChildIndex();
         const descendants = new Set();
-        const countedNodes = new Set();
-        let deepestBranch = 0;
         let numericSum = 0;
 
-        function walk(nodeId, depth, path) {
-            getChildIdsFromIndex(index, nodeId).forEach(childId => {
-                if (path.has(childId)) return;
-                descendants.add(childId);
-                if (!countedNodes.has(childId)) {
-                    numericSum += sumNumbersInText(getNodeText(childId));
-                    countedNodes.add(childId);
+        // Iterative depth-first walk where each reachable node is expanded
+        // once. Graphs whose branches merge back together stay linear instead
+        // of enumerating every distinct path, and an explicit stack keeps deep
+        // chains from overflowing the call stack. The first state marks nodes
+        // on the current DFS stack so cycles terminate.
+        const childDepth = new Map();
+        const visitState = new Map([[rootId, 1]]);
+        const stack = [{ id: rootId, childIndex: 0, bestDepth: 0 }];
+
+        while (stack.length) {
+            const frame = stack[stack.length - 1];
+            const children = getChildIdsFromIndex(index, frame.id);
+
+            if (frame.childIndex < children.length) {
+                const childId = children[frame.childIndex++];
+                const childState = visitState.get(childId) || 0;
+                if (childState === 1) continue;
+                if (childState === 2) {
+                    frame.bestDepth = Math.max(frame.bestDepth, 1 + childDepth.get(childId));
+                    continue;
                 }
-                deepestBranch = Math.max(deepestBranch, depth + 1);
-                const nextPath = new Set(path);
-                nextPath.add(childId);
-                walk(childId, depth + 1, nextPath);
-            });
+                visitState.set(childId, 1);
+                descendants.add(childId);
+                numericSum += sumNumbersInText(getNodeText(childId));
+                stack.push({ id: childId, childIndex: 0, bestDepth: 0 });
+                continue;
+            }
+
+            childDepth.set(frame.id, frame.bestDepth);
+            visitState.set(frame.id, 2);
+            stack.pop();
+            if (stack.length) {
+                stack[stack.length - 1].bestDepth = Math.max(
+                    stack[stack.length - 1].bestDepth,
+                    1 + frame.bestDepth
+                );
+            }
         }
 
-        walk(rootId, 0, new Set([rootId]));
         return {
             totalChildren: descendants.size,
             directChildren: getChildIdsFromIndex(index, rootId).length,
-            deepestBranch,
+            deepestBranch: childDepth.get(rootId) || 0,
             numericSum
         };
     }

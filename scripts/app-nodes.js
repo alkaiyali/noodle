@@ -320,8 +320,8 @@
     }
 
     function createNode(type, presetId = null, presetX = null, presetY = null, presetText = null, presetBg = null, presetColor = null, recordHistory = !presetId, presetHtml = '', autoSelect = !presetId, presetMetadata = null, presetWidth = null, presetHeight = null) {
-        const resolvedBg = presetBg ?? (type === 'floatingText' ? 'transparent' : (type === 'group' ? '#eff6ff' : '#ffffff'));
-        const resolvedColor = presetColor ?? '#0f172a';
+        const resolvedBg = presetBg ?? (type === 'floatingText' ? 'transparent' : (type === 'group' ? '#eff6ff' : (type === 'note' ? '#fef9c3' : '#ffffff')));
+        const resolvedColor = presetColor ?? (type === 'note' ? '#713f12' : '#0f172a');
         const resolvedHtml = presetHtml || '';
         const resolvedMetadata = sanitizeNodeMetadata(presetMetadata || DEFAULT_NODE_METADATA);
         const resolvedSize = normalizeNodeSize(type, presetWidth, presetHeight);
@@ -579,7 +579,8 @@ function pruneCollapsedNodeState() {
             const hasChildren = getChildIdsFromIndex(index, id).length > 0;
             if (hasChildren && !hidden.has(id)) {
                 const isCollapsed = hasCollapsedBranches(id);
-                btn.style.display = 'flex'; btn.innerHTML = isCollapsed ? '+' : '-';
+                btn.style.display = 'flex'; btn.textContent = isCollapsed ? '+' : '-';
+                btn.classList.toggle('is-collapsed', isCollapsed);
                 btn.style.color = isCollapsed ? 'white' : '#64748b';
                 btn.style.background = isCollapsed ? 'var(--primary)' : 'white';
                 btn.style.borderColor = isCollapsed ? 'var(--primary)' : '#94a3b8';
@@ -638,17 +639,17 @@ function pruneCollapsedNodeState() {
         container.dataset.nodeId = nodeId;
         container.style.display = 'block';
         container.innerHTML = `
-            <button class="quick-add-btn quick-add-right" data-dir="right" title="Add connected node to the right" style="left:${node.x + w + 8}px; top:${node.y + h / 2 - 12}px;">
-                <svg viewBox="0 0 24 24" width="14" height="14"><path d="M5 12h14M12 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <button class="quick-add-btn quick-add-right" data-dir="right" title="Add connected node to the right" style="left:${node.x + w + 12}px; top:${node.y + h / 2 - 10}px;">
+                <svg viewBox="0 0 24 24" width="12" height="12"><path d="M5 12h14M12 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
-            <button class="quick-add-btn quick-add-bottom" data-dir="bottom" title="Add connected node below" style="left:${node.x + w / 2 - 12}px; top:${node.y + h + 8}px;">
-                <svg viewBox="0 0 24 24" width="14" height="14"><path d="M12 5v14M5 12l7 7 7-7" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <button class="quick-add-btn quick-add-bottom" data-dir="bottom" title="Add connected node below" style="left:${node.x + w / 2 - 10}px; top:${node.y + h + 12}px;">
+                <svg viewBox="0 0 24 24" width="12" height="12"><path d="M12 5v14M5 12l7 7 7-7" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
-            <button class="quick-add-btn quick-add-left" data-dir="left" title="Add connected node to the left" style="left:${node.x - 32}px; top:${node.y + h / 2 - 12}px;">
-                <svg viewBox="0 0 24 24" width="14" height="14"><path d="M19 12H5M12 19l-7-7 7-7" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <button class="quick-add-btn quick-add-left" data-dir="left" title="Add connected node to the left" style="left:${node.x - 32}px; top:${node.y + h / 2 - 10}px;">
+                <svg viewBox="0 0 24 24" width="12" height="12"><path d="M19 12H5M12 19l-7-7 7-7" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
-            <button class="quick-add-btn quick-add-top" data-dir="top" title="Add connected node above" style="left:${node.x + w / 2 - 12}px; top:${node.y - 32}px;">
-                <svg viewBox="0 0 24 24" width="14" height="14"><path d="M12 19V5M19 12l-7-7-7 7" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <button class="quick-add-btn quick-add-top" data-dir="top" title="Add connected node above" style="left:${node.x + w / 2 - 10}px; top:${node.y - 32}px;">
+                <svg viewBox="0 0 24 24" width="12" height="12"><path d="M12 19V5M19 12l-7-7-7 7" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
         `;
 
