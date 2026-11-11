@@ -396,12 +396,12 @@ async function openDiagramsModal() {
     headerBtns.style.gap = '6px';
     const newDocBtn = document.createElement('button');
     newDocBtn.type = 'button';
-    newDocBtn.className = 'mini-btn new-doc-btn';
+    newDocBtn.className = 'modal-btn modal-btn-sm new-doc-btn';
     newDocBtn.textContent = '+ Blank';
     const templateDocBtn = document.createElement('button');
     templateDocBtn.type = 'button';
-    templateDocBtn.className = 'mini-btn template-doc-btn';
-    templateDocBtn.textContent = 'Templates...';
+    templateDocBtn.className = 'modal-btn modal-btn-sm template-doc-btn';
+    templateDocBtn.textContent = 'Templates';
     templateDocBtn.addEventListener('click', () => {
         closeDiagramsModal();
         openTemplatesModal();
@@ -456,7 +456,8 @@ async function openDiagramsModal() {
         actions.className = 'diagram-actions';
 
         const dupBtn = document.createElement('button');
-        dupBtn.className = 'mini-btn';
+        dupBtn.type = 'button';
+        dupBtn.className = 'modal-btn modal-btn-sm';
         dupBtn.textContent = 'Copy';
         dupBtn.title = 'Duplicate diagram';
         dupBtn.addEventListener('click', async (e) => {
@@ -467,7 +468,8 @@ async function openDiagramsModal() {
         });
 
         const delBtn = document.createElement('button');
-        delBtn.className = 'mini-btn danger-btn';
+        delBtn.type = 'button';
+        delBtn.className = 'modal-btn modal-btn-sm danger-btn';
         delBtn.textContent = 'Del';
         delBtn.title = 'Delete diagram';
         delBtn.addEventListener('click', async (e) => {

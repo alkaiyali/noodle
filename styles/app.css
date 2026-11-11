@@ -2557,9 +2557,19 @@
     background: #ffffff;
     color: var(--text-color);
     cursor: pointer;
-    transition: background 0.15s ease;
+    transition: background 0.15s ease, border-color 0.15s ease;
+    box-shadow: none;
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
+}
+.modal-btn-sm {
+    padding: 5px 12px;
+    font-size: 12px;
+    border-radius: 8px;
+}
+.modal-btn:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
 }
 .modal-btn:hover {
     background: #f1f5f9;
@@ -2596,12 +2606,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.new-doc-btn {
-    height: 32px;
-    min-width: 0;
-    padding: 4px 12px;
-    font-size: 12px;
-    border-radius: 10px;
+.diagrams-dialog .modal-title .modal-btn {
     flex-shrink: 0;
 }
 .diagrams-list {
@@ -2665,14 +2670,12 @@
     gap: 4px;
     flex-shrink: 0;
 }
-.diagram-actions .mini-btn {
-    height: 30px;
-    min-width: 0;
-    padding: 4px 10px;
-    font-size: 11px;
-}
 .diagram-actions .danger-btn {
     color: var(--danger, #f43f5e);
+}
+.diagram-actions .danger-btn:hover {
+    border-color: rgba(244, 63, 94, 0.5);
+    background: rgba(244, 63, 94, 0.08);
 }
 @keyframes modal-fade-in {
     from { opacity: 0; }
@@ -3285,7 +3288,13 @@ body.theme-dark .modal-btn {
 }
 
 body.theme-dark .modal-btn:hover {
-    background: #141414;
+    background: #1a1a1a;
+    border-color: #404040;
+}
+
+body.theme-dark .diagram-actions .danger-btn:hover {
+    border-color: rgba(244, 63, 94, 0.5);
+    background: rgba(244, 63, 94, 0.12);
 }
 
 body.theme-dark .modal-btn-primary {
