@@ -1347,7 +1347,7 @@ var pendingTableEditContext = null;
         bgRect.setAttribute('y', minY);
         bgRect.setAttribute('width', width);
         bgRect.setAttribute('height', height);
-        bgRect.setAttribute('fill', isDarkTheme ? '#090d16' : '#f8fafc');
+        bgRect.setAttribute('fill', isDarkTheme ? '#000000' : '#f8fafc');
         svg.appendChild(bgRect);
 
         const defs = document.createElementNS(ns, 'defs');
@@ -1410,7 +1410,7 @@ var pendingTableEditContext = null;
                 text.setAttribute('font-size', '12');
                 text.setAttribute('font-weight', '700');
                 text.setAttribute('font-family', 'system-ui, sans-serif');
-                text.setAttribute('fill', isDarkTheme ? '#f1f5f9' : '#334155');
+                text.setAttribute('fill', isDarkTheme ? '#f5f5f5' : '#334155');
                 text.textContent = conn.label;
                 g.appendChild(text);
             }
@@ -1467,8 +1467,8 @@ var pendingTableEditContext = null;
                 }
 
                 if (n.type === 'group') {
-                    shape.setAttribute('fill', isDarkTheme ? 'rgba(30, 41, 59, 0.4)' : 'rgba(239, 246, 255, 0.4)');
-                    shape.setAttribute('stroke', isDarkTheme ? '#475569' : '#94a3b8');
+                    shape.setAttribute('fill', isDarkTheme ? 'rgba(255, 255, 255, 0.06)' : 'rgba(239, 246, 255, 0.4)');
+                    shape.setAttribute('stroke', isDarkTheme ? '#333333' : '#94a3b8');
                     shape.setAttribute('stroke-dasharray', '6 4');
                 } else if (n.type === 'note') {
                     const noteDefaultFill = isDarkTheme ? '#422006' : '#fef9c3';
@@ -1476,9 +1476,9 @@ var pendingTableEditContext = null;
                     shape.setAttribute('fill', n.bgColor || noteDefaultFill);
                     shape.setAttribute('stroke', isDarkTheme ? '#713f12' : noteDefaultStroke);
                 } else {
-                    const defaultFill = isDarkTheme ? '#1e293b' : '#ffffff';
+                    const defaultFill = isDarkTheme ? '#0a0a0a' : '#ffffff';
                     shape.setAttribute('fill', n.bgColor || defaultFill);
-                    shape.setAttribute('stroke', isDarkTheme ? '#334155' : '#94a3b8');
+                    shape.setAttribute('stroke', isDarkTheme ? '#262626' : '#94a3b8');
                 }
                 shape.setAttribute('stroke-width', '2');
                 g.appendChild(shape);
@@ -1491,8 +1491,8 @@ var pendingTableEditContext = null;
                     topRim.setAttribute('cy', n.y + ry);
                     topRim.setAttribute('rx', rx);
                     topRim.setAttribute('ry', ry);
-                    topRim.setAttribute('fill', n.bgColor || (isDarkTheme ? '#1e293b' : '#ffffff'));
-                    topRim.setAttribute('stroke', isDarkTheme ? '#334155' : '#94a3b8');
+                    topRim.setAttribute('fill', n.bgColor || (isDarkTheme ? '#0a0a0a' : '#ffffff'));
+                    topRim.setAttribute('stroke', isDarkTheme ? '#262626' : '#94a3b8');
                     topRim.setAttribute('stroke-width', '2');
                     g.appendChild(topRim);
                 } else if (n.type === 'note') {
@@ -1510,7 +1510,7 @@ var pendingTableEditContext = null;
                 if (textContent) {
                     const text = document.createElementNS(ns, 'text');
                     const isFloating = n.type === 'floatingText';
-                    const defaultTextFill = isDarkTheme ? '#f8fafc' : '#0f172a';
+                    const defaultTextFill = isDarkTheme ? '#f5f5f5' : '#0f172a';
                     text.setAttribute('fill', n.textColor || defaultTextFill);
                     text.setAttribute('font-size', '14');
                     text.setAttribute('font-weight', '600');
@@ -1563,8 +1563,8 @@ var pendingTableEditContext = null;
                 rect.setAttribute('y', t.y);
                 rect.setAttribute('width', item.w);
                 rect.setAttribute('height', item.h);
-                rect.setAttribute('fill', t.bgColor || (isDarkTheme ? '#1e293b' : '#ffffff'));
-                rect.setAttribute('stroke', isDarkTheme ? '#334155' : '#94a3b8');
+                rect.setAttribute('fill', t.bgColor || (isDarkTheme ? '#0a0a0a' : '#ffffff'));
+                rect.setAttribute('stroke', isDarkTheme ? '#262626' : '#94a3b8');
                 rect.setAttribute('stroke-width', '2');
                 rect.setAttribute('rx', '8');
                 g.appendChild(rect);
@@ -1594,7 +1594,7 @@ var pendingTableEditContext = null;
             canvas.width = Math.max(1, Math.round(built.width * scale));
             canvas.height = Math.max(1, Math.round(built.height * scale));
             const ctx = canvas.getContext('2d');
-            ctx.fillStyle = isDarkTheme ? '#090d16' : '#f8fafc';
+            ctx.fillStyle = isDarkTheme ? '#000000' : '#f8fafc';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
             URL.revokeObjectURL(url);

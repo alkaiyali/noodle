@@ -251,7 +251,17 @@
                 </button>
             </div>
 
-            <div class="toolbar-section" role="group" aria-label="View">
+            <div class="toolbar-section toolbar-section-more" role="group" aria-label="More tools">
+                <button id="toolbarMoreBtn" class="icon-btn" data-action="toggle-toolbar-more" title="More tools" aria-label="More tools" aria-expanded="false" aria-controls="toolbar" type="button">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <circle cx="5" cy="12" r="1.5"></circle>
+                        <circle cx="12" cy="12" r="1.5"></circle>
+                        <circle cx="19" cy="12" r="1.5"></circle>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="toolbar-section toolbar-collapsible" role="group" aria-label="View">
                 <button class="icon-btn" data-action="zoom-out" title="Zoom Out" aria-label="Zoom Out" type="button">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                         <circle cx="11" cy="11" r="8"></circle>
@@ -288,7 +298,14 @@
                 </button>
             </div>
 
-            <div class="toolbar-section" role="group" aria-label="Window">
+            <div class="toolbar-section toolbar-collapsible" role="group" aria-label="Window">
+                <button id="aiToggleBtn" class="icon-btn" data-action="toggle-ai-sidebar" title="Graph Assistant (AI)" aria-label="Graph Assistant" aria-pressed="false" type="button">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M9.94 14.06 4.5 12l5.44-2.06L12 4.5l2.06 5.44L19.5 12l-5.44 2.06L12 19.5Z"></path>
+                        <path d="M19 3v4"></path>
+                        <path d="M17 5h4"></path>
+                    </svg>
+                </button>
                 <button id="fullscreenBtn" class="icon-btn" data-action="toggle-fullscreen" title="Fullscreen" aria-label="Fullscreen" aria-pressed="false" type="button">
                     <svg id="fullscreenIcon" viewBox="0 0 24 24" aria-hidden="true">
                         <path d="M15 3h6v6"></path>
@@ -504,6 +521,51 @@
         </div>
     </div>
 
+    <aside id="aiSidebar" class="ai-sidebar" aria-label="Graph assistant" hidden>
+        <div class="ai-header">
+            <span class="ai-title">✨ Graph Assistant</span>
+            <div class="ai-header-actions">
+                <button class="ai-icon-btn" data-action="ai-new-chat" title="New chat" aria-label="New chat" type="button">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>
+                </button>
+                <button class="ai-icon-btn" data-action="toggle-ai-settings" title="API key &amp; model" aria-label="Assistant settings" type="button">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path></svg>
+                </button>
+                <button class="ai-icon-btn" data-action="toggle-ai-sidebar" title="Close" aria-label="Close assistant" type="button">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+                </button>
+            </div>
+        </div>
+        <form id="aiSettings" class="ai-settings" hidden autocomplete="off">
+            <label class="ai-field">
+                <span>OpenRouter API key</span>
+                <input id="aiKeyInput" class="ai-input" type="password" autocomplete="off" spellcheck="false" placeholder="sk-or-v1-…">
+            </label>
+            <label class="ai-field">
+                <span>Model</span>
+                <input id="aiModelInput" class="ai-input" type="text" autocomplete="off" spellcheck="false">
+            </label>
+            <p id="aiKeyStatus" class="ai-hint"></p>
+            <p class="ai-hint">Stored in localStorage and sent only to openrouter.ai. <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer">Get a key</a></p>
+            <div class="ai-settings-actions">
+                <button id="aiKeyClearBtn" class="ai-btn" type="button">Remove key</button>
+                <button class="ai-btn ai-btn-primary" type="submit">Save</button>
+            </div>
+        </form>
+        <div id="aiMessages" class="ai-messages" role="log" aria-live="polite"></div>
+        <div id="aiSuggestions" class="ai-suggestions">
+            <p class="ai-hint">Talk to your graph. Try:</p>
+            <button class="ai-chip" type="button" data-ai-prompt="Summarize this graph in a few bullet points.">Summarize this graph</button>
+            <button class="ai-chip" type="button" data-ai-prompt="Organize this graph: cluster related nodes into labelled groups, fix connection types, and lay it out cleanly.">Organize it for me</button>
+            <button class="ai-chip" type="button" data-ai-prompt="Find gaps: missing steps, dead ends, or unconnected nodes. Point them out by selecting them.">Find gaps and dead ends</button>
+            <button class="ai-chip" type="button" data-ai-prompt="Color-code the nodes by role or category and explain the legend.">Color-code by category</button>
+        </div>
+        <form id="aiComposer" class="ai-composer">
+            <textarea id="aiInput" rows="1" aria-label="Message the graph assistant" placeholder="Ask about your graph…"></textarea>
+            <button id="aiSendBtn" class="ai-send-btn" type="submit" aria-label="Send message">Send</button>
+        </form>
+    </aside>
+
     <div id="context-menu" class="menu-panel">
         <div class="menu-item" data-action="trigger-selection-action" data-selection-action="copy">Copy <span class="menu-shortcut">Ctrl+C</span></div>
         <div class="menu-item" data-action="trigger-selection-action" data-selection-action="paste">Paste <span class="menu-shortcut">Ctrl+V</span></div>
@@ -550,6 +612,7 @@
 <script src="./scripts/app-interactions.js"></script>
 <script src="./scripts/app-io.js"></script>
 <script src="./scripts/app-share.js"></script>
+<script src="./scripts/app-ai.js"></script>
 <script src="./scripts/app-init.js"></script>
 </body>
 </html>

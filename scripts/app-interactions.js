@@ -2675,8 +2675,8 @@
             const mw = Math.max(2, sz.w * scale);
             const mh = Math.max(2, sz.h * scale);
             if (n.type === 'group') {
-                ctx.fillStyle = isDark ? 'rgba(51, 65, 85, 0.4)' : 'rgba(219, 234, 254, 0.5)';
-                ctx.strokeStyle = isDark ? '#475569' : '#94a3b8';
+                ctx.fillStyle = isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(219, 234, 254, 0.5)';
+                ctx.strokeStyle = isDark ? '#333333' : '#94a3b8';
                 ctx.lineWidth = 1;
                 ctx.strokeRect(mx, my, mw, mh);
                 ctx.fillRect(mx, my, mw, mh);
@@ -2684,7 +2684,7 @@
                 ctx.fillStyle = isDark ? '#713f12' : '#fef08a';
                 ctx.fillRect(mx, my, mw, mh);
             } else {
-                ctx.fillStyle = n.bgColor || (isDark ? '#334155' : '#cbd5e1');
+                ctx.fillStyle = n.bgColor || (isDark ? '#262626' : '#cbd5e1');
                 ctx.fillRect(mx, my, mw, mh);
             }
         });
@@ -2695,7 +2695,7 @@
             const my = offsetY + (t.y - minY) * scale;
             const mw = Math.max(2, sz.w * scale);
             const mh = Math.max(2, sz.h * scale);
-            ctx.fillStyle = isDark ? '#1e3a8a' : '#bfdbfe';
+            ctx.fillStyle = isDark ? '#172554' : '#bfdbfe';
             ctx.fillRect(mx, my, mw, mh);
         });
 

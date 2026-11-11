@@ -1,7 +1,7 @@
 'use strict';
 
 // Bump on precache changes so old caches are purged on activate.
-var CACHE = 'noodle-v5';
+var CACHE = 'noodle-v8';
 
 // On local dev hosts let every request hit the network so CSS/JS edits show
 // up on the next reload instead of one reload late (stale-while-revalidate).
@@ -25,6 +25,7 @@ var PRECACHE_URLS = [
     'scripts/app-interactions.js',
     'scripts/app-io.js',
     'scripts/app-share.js',
+    'scripts/app-ai.js',
     'scripts/app-init.js',
     'manifest.json',
     'icons/icon.svg',

@@ -111,8 +111,18 @@ var APP_ACTIONS = {
     },
     'trigger-selection-action': (actionEl) => triggerAction(actionEl.dataset.selectionAction),
     'trigger-collapse-action': (actionEl) => triggerContextNodeCollapse(actionEl.dataset.collapseDirection, actionEl.dataset.collapseType),
+    'toggle-ai-sidebar': () => toggleAISidebar(),
+    'toggle-ai-settings': () => toggleAISettings(),
+    'ai-new-chat': () => resetAIChat(),
     'toggle-fullscreen': () => toggleFullscreen(),
-    'print-chart': () => window.print()
+    'print-chart': () => window.print(),
+    'toggle-toolbar-more': (actionEl) => {
+        const toolbarEl = document.getElementById('toolbar');
+        if (!toolbarEl) return;
+        const expanded = toolbarEl.classList.toggle('toolbar-expanded');
+        actionEl.setAttribute('aria-expanded', String(expanded));
+        actionEl.classList.toggle('active', expanded);
+    }
 };
 
 function bindAppActions() {
@@ -193,6 +203,7 @@ function createDefaultStarterGraph() {
 
 bindAppActions();
 bindCustomColorInputs();
+if (typeof initAISidebar === 'function') initAISidebar();
 setSnapToGridEnabled(isSnapToGridEnabled());
 if (typeof initMinimap === 'function') initMinimap();
 if (typeof getSavedTheme === 'function' && typeof applyTheme === 'function') {

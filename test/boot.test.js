@@ -559,6 +559,60 @@ function ok(message) {
         }
     }
 
+    // AI graph assistant: mocked OpenRouter stream drives the tool loop.
+    if (typeof window.runAIAgentTurn !== 'function') fail('runAIAgentTurn is not defined');
+    else {
+        if (typeof window.TextDecoder !== 'function') window.TextDecoder = require('util').TextDecoder;
+        const encoder = new (require('util').TextEncoder)();
+        const sse = (chunks) => chunks.map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join('') + 'data: [DONE]\n\n';
+        const toolArgs = (value) => JSON.stringify(value);
+        const responses = [
+            sse([
+                { choices: [{ delta: { tool_calls: [{ index: 0, id: 'c1', type: 'function', function: { name: 'add_nodes', arguments: '' } }] } }] },
+                { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: toolArgs({ nodes: [{ ref: 'a', text: 'AI A' }, { ref: 'b', text: 'AI B', type: 'decision' }] }) } }] } }] },
+                { choices: [{ delta: { tool_calls: [{ index: 1, id: 'c2', type: 'function', function: { name: 'add_connections', arguments: toolArgs({ connections: [{ from: 'a', to: 'b', label: 'yes' }] }) } }] } }] },
+                { choices: [{ delta: { tool_calls: [{ index: 2, id: 'c3', type: 'function', function: { name: 'run_layout', arguments: toolArgs({ kind: 'tidy' }) } }] } }] }
+            ]),
+            sse([{ choices: [{ delta: { content: 'Added **two** nodes.' } }] }])
+        ];
+        const requestBodies = [];
+        window.fetch = async (url, init) => {
+            requestBodies.push(JSON.parse(init.body));
+            const bytes = encoder.encode(responses.shift() || sse([{ choices: [{ delta: { content: 'ok' } }] }]));
+            let sent = false;
+            return {
+                ok: true,
+                status: 200,
+                body: { getReader: () => ({ read: async () => (sent ? { done: true } : (sent = true, { done: false, value: bytes })) }) }
+            };
+        };
+        window.localStorage.setItem('noodle-openrouter-key', 'sk-test');
+        const beforeCount = Object.keys(window.nodes).length;
+        window.toggleAISidebar(true);
+        await window.runAIAgentTurn('add two nodes');
+        const added = Object.values(window.nodes).filter(n => window.getNodeText(n).startsWith('AI '));
+        const link = window.connections.find(c => c.from === added[0]?.id && c.to === added[1]?.id);
+        if (added.length !== 2 || added[1].type !== 'decision') fail('AI add_nodes did not create the requested nodes');
+        else if (!link || link.label !== 'yes') fail('AI add_connections did not resolve refs');
+        else ok('AI tool loop creates nodes and connects them via refs');
+        const first = requestBodies[0];
+        if (!first || first.model !== 'deepseek/deepseek-v4.1-flash-1017:nitro' || !first.stream || !first.tools?.length) fail('AI request missing model, stream, or tools');
+        else if (!first.messages[0].content.includes('"nodeCount"')) fail('AI system prompt missing graph context');
+        else if (requestBodies[1]?.messages.filter(m => m.role === 'tool').length !== 3) fail('AI follow-up request missing tool results');
+        else ok('AI requests carry model, tools, graph context, and tool results');
+        const assistantText = [...window.document.querySelectorAll('.ai-msg-assistant')].pop()?.innerHTML || '';
+        if (!assistantText.includes('<strong>two</strong>')) fail('AI reply not rendered');
+        else ok('AI reply renders markdown in sidebar');
+        const revertBtn = window.document.querySelector('.ai-revert-btn');
+        if (!revertBtn) fail('AI revert button missing');
+        else {
+            revertBtn.click();
+            if (Object.keys(window.nodes).length !== beforeCount) fail('AI revert did not restore the graph');
+            else ok('AI revert restores the graph');
+        }
+        window.toggleAISidebar(false);
+    }
+
     console.log(process.exitCode ? '\nSMOKE TEST FAILED' : '\nSMOKE TEST PASSED');
 })().catch(err => {
     console.error('FATAL:', err);

@@ -275,6 +275,56 @@
         return result;
     }
 
+    // Fold a long run of layers into stacked bands so wide graphs approach a
+    // landscape aspect ratio instead of one extremely wide strip.
+    function computeLayerBands(layerKeys, layerWidths, layerHeights, columnGap, bandGap, aspect = 1.8) {
+        const maxWidth = Math.max(...layerKeys.map(layer => layerWidths[layer]));
+        const area = layerKeys.reduce((sum, layer) => sum + (layerWidths[layer] + columnGap) * (layerHeights[layer] + bandGap), 0);
+        const targetWidth = Math.max(maxWidth, Math.sqrt(area * aspect));
+
+        const bandByLayer = {};
+        const xByLayer = {};
+        let band = 0;
+        let x = 0;
+        layerKeys.forEach(layer => {
+            if (x > 0 && x + layerWidths[layer] > targetWidth) {
+                band += 1;
+                x = 0;
+            }
+            bandByLayer[layer] = band;
+            xByLayer[layer] = x;
+            x += layerWidths[layer] + columnGap;
+        });
+
+        const bandHeights = [];
+        layerKeys.forEach(layer => {
+            const b = bandByLayer[layer];
+            bandHeights[b] = Math.max(bandHeights[b] || 0, layerHeights[layer]);
+        });
+        const bandTops = [];
+        let top = 0;
+        bandHeights.forEach((height, index) => {
+            bandTops[index] = top;
+            top += height + bandGap;
+        });
+
+        return { bandByLayer, xByLayer, bandHeights, bandTops, bandCount: bandHeights.length };
+    }
+
+    // After per-layer relaxation, push bands apart so none overlap vertically.
+    function restackLayerBands(bandIdsList, positionMap, metricsById, bandGap) {
+        let cursor = null;
+        bandIdsList.forEach(ids => {
+            if (!ids.length) return;
+            const top = Math.min(...ids.map(id => positionMap[id].y));
+            const bottom = Math.max(...ids.map(id => positionMap[id].y + metricsById[id].height));
+            if (cursor === null) cursor = top;
+            const shift = cursor - top;
+            ids.forEach(id => { positionMap[id].y += shift; });
+            cursor = bottom + shift + bandGap;
+        });
+    }
+
     function runTopologicalLayout() {
         const selectedIds = getSelectedVisibleNodeIds();
         const nodeIds = selectedIds.length > 1 ? selectedIds : getVisibleNodeIds();
@@ -412,26 +462,33 @@
         const verticalCenter = bounds.top + bounds.height / 2;
 
         const layerWidths = {};
+        const layerHeights = {};
         layerKeys.forEach(layer => {
             const bucket = layerBucketsMap.get(layer) || [];
             layerWidths[layer] = Math.max(...bucket.map(id => metricsById[id].width));
+            layerHeights[layer] = bucket.reduce((sum, id) => sum + metricsById[id].height, 0) + rowGap * Math.max(0, bucket.length - 1);
         });
 
+        const bandGap = rowGap * 2;
+        const bands = computeLayerBands(layerKeys, layerWidths, layerHeights, columnGap, bandGap);
+        const bandIdsList = Array.from({ length: bands.bandCount }, () => []);
+        const bandById = {};
+
         const positionMap = {};
-        let currentX = bounds.left;
         layerKeys.forEach(layer => {
             const bucket = layerBucketsMap.get(layer) || [];
-            const totalHeight = bucket.reduce((sum, id) => sum + metricsById[id].height, 0) + rowGap * Math.max(0, bucket.length - 1);
-            let curY = verticalCenter - totalHeight / 2;
+            const band = bands.bandByLayer[layer];
+            let curY = verticalCenter + bands.bandTops[band] + (bands.bandHeights[band] - layerHeights[layer]) / 2;
             bucket.forEach(id => {
                 const metric = metricsById[id];
                 positionMap[id] = {
-                    x: currentX + (layerWidths[layer] - metric.width) / 2,
+                    x: bounds.left + bands.xByLayer[layer] + (layerWidths[layer] - metric.width) / 2,
                     y: curY
                 };
+                bandById[id] = band;
+                bandIdsList[band].push(id);
                 curY += metric.height + rowGap;
             });
-            currentX += layerWidths[layer] + columnGap;
         });
 
         const relaxLayerY = (layer, relatedNodesMap) => {
@@ -440,7 +497,7 @@
 
             const desiredCenters = {};
             bucket.forEach(id => {
-                const related = relatedNodesMap[id] || [];
+                const related = (relatedNodesMap[id] || []).filter(rId => bandById[rId] === bandById[id]);
                 if (related.length > 0) {
                     desiredCenters[id] = related.reduce((sum, rId) => sum + positionMap[rId].y + metricsById[rId].height / 2, 0) / related.length;
                 } else {
@@ -458,6 +515,8 @@
             layerKeys.slice(1).forEach(layer => relaxLayerY(layer, reverseAdjacency));
             [...layerKeys].reverse().slice(1).forEach(layer => relaxLayerY(layer, adjacency));
         }
+
+        restackLayerBands(bandIdsList, positionMap, metricsById, bandGap);
 
         const allPlacedMetrics = nodeIds.map(id => ({
             id,
@@ -796,8 +855,8 @@
         const componentMetrics = componentIds.map(id => metricsById[id]);
         const medianWidth = getMedianMetricSize(componentMetrics, 'width');
         const medianHeight = getMedianMetricSize(componentMetrics, 'height');
-        const columnGap = Math.max(150, Math.min(300, Math.round(medianWidth * 0.7 + 56)));
-        const rowGap = Math.max(90, Math.min(180, Math.round(medianHeight * 0.6 + 38)));
+        const columnGap = Math.max(110, Math.min(220, Math.round(medianWidth * 0.5 + 40)));
+        const rowGap = Math.max(64, Math.min(120, Math.round(medianHeight * 0.45 + 30)));
         const layerHeights = {};
         const layerWidths = {};
         let componentHeight = 0;
@@ -809,28 +868,31 @@
             componentHeight = Math.max(componentHeight, layerHeights[layer]);
         });
 
+        const bandGap = rowGap * 1.5;
+        const bands = computeLayerBands(layerKeys, layerWidths, layerHeights, columnGap, bandGap);
+        const bandIdsList = Array.from({ length: bands.bandCount }, () => []);
         const localPositions = {};
         const layerById = {};
         const layerBuckets = {};
-        let currentX = 0;
         layerKeys.forEach(layer => {
             const bucket = layerBucketsMap.get(layer) || [];
+            const band = bands.bandByLayer[layer];
             layerBuckets[layer] = [...bucket];
-            let currentY = (componentHeight - layerHeights[layer]) / 2;
+            let currentY = bands.bandTops[band] + (bands.bandHeights[band] - layerHeights[layer]) / 2;
 
             bucket.forEach(id => {
                 localPositions[id] = {
-                    x: currentX + (layerWidths[layer] - metricsById[id].width) / 2,
+                    x: bands.xByLayer[layer] + (layerWidths[layer] - metricsById[id].width) / 2,
                     y: currentY
                 };
                 layerById[id] = layer;
+                bandIdsList[band].push(id);
                 currentY += metricsById[id].height + rowGap;
             });
-
-            currentX += layerWidths[layer] + columnGap;
         });
 
         resolveTidyConnectionOverlaps(componentIds, localPositions, metricsById, layerById, layerBuckets, rowGap);
+        restackLayerBands(bandIdsList, localPositions, metricsById, bandGap);
 
         const normalizedBounds = getNodeBounds(componentIds.map(id => ({
             id,
@@ -862,9 +924,8 @@
         const metrics = getNodeMetrics(nodeIds);
         const metricsById = Object.fromEntries(metrics.map(metric => [metric.id, metric]));
         const bounds = getNodeBounds(metrics);
-        const packWidth = Math.max(bounds.width, Math.min(viewport.clientWidth / zoom, 1400));
-        const componentGapX = 140;
-        const componentGapY = 110;
+        const componentGapX = 100;
+        const componentGapY = 80;
         const components = buildConnectedComponents(nodeIds).map(componentIds => {
             const componentLayout = buildTidyComponentLayout(componentIds, metricsById);
             const componentMetrics = componentIds.map(id => metricsById[id]);
@@ -878,6 +939,11 @@
                 left: Math.min(...componentMetrics.map(metric => metric.x))
             };
         }).sort((a, b) => (a.top - b.top) || (a.left - b.left));
+
+        // Aim for a landscape-ish overall shape rather than the old fixed viewport width.
+        const totalArea = components.reduce((sum, c) => sum + (c.width + componentGapX) * (c.height + componentGapY), 0);
+        const widestComponent = Math.max(...components.map(c => c.width));
+        const packWidth = Math.max(widestComponent, Math.sqrt(totalArea * 1.8));
 
         const positionMap = {};
         let currentX = bounds.left;
