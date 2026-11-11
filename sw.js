@@ -1,7 +1,7 @@
 'use strict';
 
 // Bump on precache changes so old caches are purged on activate.
-var CACHE = 'noodle-v8';
+var CACHE = 'noodle-v9';
 
 // On local dev hosts let every request hit the network so CSS/JS edits show
 // up on the next reload instead of one reload late (stale-while-revalidate).
@@ -120,37 +120,27 @@ self.addEventListener('fetch', function (event) {
         return;
     }
 
-    // Static assets: stale-while-revalidate. Serve cache instantly when
-    // available, refresh in the background; fall back to network.
+    // Static assets: network-first (like navigations) so fresh HTML never
+    // runs against stale CSS/JS after a deploy; fall back to cache offline.
     event.respondWith(
-        caches.match(event.request).then(function (cached) {
-            var networkFetch = fetch(event.request)
-                .then(function (response) {
-                    if (cacheableResponse(response)) {
-                        var clone = response.clone();
-                        caches.open(CACHE).then(function (cache) {
-                            cache.put(event.request, clone);
-                        });
-                    }
-                    return response;
-                })
-                .catch(function () {
-                    // Offline and not cached: return the cached entry if we
-                    // have one, otherwise a plain offline response instead of
-                    // an unhandled rejection.
-                    if (cached) return cached;
-                    return new Response('Offline', {
+        fetch(event.request)
+            .then(function (response) {
+                if (cacheableResponse(response)) {
+                    var clone = response.clone();
+                    caches.open(CACHE).then(function (cache) {
+                        cache.put(event.request, clone);
+                    });
+                }
+                return response;
+            })
+            .catch(function () {
+                return caches.match(event.request).then(function (cached) {
+                    return cached || new Response('Offline', {
                         status: 503,
                         statusText: 'Service Unavailable',
                         headers: { 'Content-Type': 'text/plain' }
                     });
                 });
-            if (cached) {
-                // Keep the SW alive for the background revalidation.
-                if (event.waitUntil) event.waitUntil(networkFetch.catch(function () {}));
-                return cached;
-            }
-            return networkFetch;
-        })
+            })
     );
 });

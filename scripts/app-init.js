@@ -170,8 +170,50 @@ function bindCustomColorInputs() {
     }
 }
 
+// Collapse the bottom toolbar in steps (labels → overflow menu) only when it
+// actually doesn't fit, so it adapts to zoom, side panels and window size.
+function fitToolbar() {
+    const toolbarEl = document.getElementById('toolbar');
+    const stackEl = document.getElementById('toolbarStack');
+    if (!toolbarEl || !stackEl) return;
+    const expanded = toolbarEl.classList.contains('toolbar-expanded');
+    toolbarEl.classList.remove('toolbar-compact', 'toolbar-collapsed', 'toolbar-expanded');
+    const available = stackEl.clientWidth;
+    const fits = () => !available || toolbarEl.scrollWidth <= available;
+    let collapsed = false;
+    if (!fits()) {
+        toolbarEl.classList.add('toolbar-compact');
+        if (!fits()) {
+            toolbarEl.classList.add('toolbar-collapsed');
+            collapsed = true;
+        }
+    }
+    const keepExpanded = expanded && collapsed;
+    toolbarEl.classList.toggle('toolbar-expanded', keepExpanded);
+    const moreBtn = document.getElementById('toolbarMoreBtn');
+    if (moreBtn) {
+        moreBtn.setAttribute('aria-expanded', String(keepExpanded));
+        moreBtn.classList.toggle('active', keepExpanded);
+    }
+}
+
+let fitToolbarFrame = 0;
+function scheduleFitToolbar() {
+    if (fitToolbarFrame) return;
+    fitToolbarFrame = requestAnimationFrame(() => {
+        fitToolbarFrame = 0;
+        fitToolbar();
+    });
+}
+
+window.addEventListener('resize', scheduleFitToolbar);
+if (document.fonts?.ready) document.fonts.ready.then(scheduleFitToolbar);
+scheduleFitToolbar();
+
 if (typeof ResizeObserver === 'function') {
     new ResizeObserver(() => invalidateGridSize()).observe(viewport);
+    const toolbarStackEl = document.getElementById('toolbarStack');
+    if (toolbarStackEl) new ResizeObserver(scheduleFitToolbar).observe(toolbarStackEl);
 }
 
 // devicePixelRatio changes (browser zoom, moving between monitors) also fire

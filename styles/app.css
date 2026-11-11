@@ -127,24 +127,23 @@
         }
         /* "More" toggle only appears once the toolbar starts collapsing. */
         #toolbar > .toolbar-section-more { display: none; }
-        /* Compact: drop text labels so the bar stops overflowing mid-size windows. */
-        @media (max-width: 1280px) {
-            #toolbar .layout-btn span,
-            #toolbar .layout-btn .toolbar-caret,
-            #toolbar .save-menu-btn span,
-            #toolbar .autosave-status { display: none; }
-            #toolbar .layout-btn,
-            #toolbar .save-menu-btn { padding-left: 10px; padding-right: 10px; gap: 0; }
-        }
+        /* fitToolbar() (app-init.js) measures the bar and adds these classes
+           only when it would overflow the available width. */
+        #toolbar { max-width: 100%; }
+        /* Compact: drop text labels. */
+        #toolbar.toolbar-compact .layout-btn span,
+        #toolbar.toolbar-compact .layout-btn .toolbar-caret,
+        #toolbar.toolbar-compact .save-menu-btn span,
+        #toolbar.toolbar-compact .autosave-status { display: none; }
+        #toolbar.toolbar-compact .layout-btn,
+        #toolbar.toolbar-compact .save-menu-btn { padding-left: 10px; padding-right: 10px; gap: 0; }
         /* Collapsed: View/Window groups fold behind the "More" button. */
-        @media (max-width: 1024px) {
-            #toolbar > .toolbar-section-more { display: flex; }
-            #toolbar:not(.toolbar-expanded) > .toolbar-collapsible { display: none; }
-            #toolbar.toolbar-expanded {
-                flex-wrap: wrap;
-                overflow-x: visible;
-                row-gap: 6px;
-            }
+        #toolbar.toolbar-collapsed > .toolbar-section-more { display: flex; }
+        #toolbar.toolbar-collapsed:not(.toolbar-expanded) > .toolbar-collapsible { display: none; }
+        #toolbar.toolbar-collapsed.toolbar-expanded {
+            flex-wrap: wrap;
+            overflow-x: visible;
+            row-gap: 6px;
         }
         #toolbarStack.delete-drop-ready #toolbar {
             border-color: rgba(251, 113, 133, 0.44);
